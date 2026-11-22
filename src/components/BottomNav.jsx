@@ -135,7 +135,13 @@ export default function BottomNav({ tab, setTab }) {
               {/* Quick Plan Stop */}
               <button
                 type="button"
-                onClick={() => handleSelect('plan')}
+                onClick={() => {
+                  // Ask Plan to open its add-stop form: sessionStorage covers a fresh mount, the event covers
+                  // Plan already being on screen.
+                  try { sessionStorage.setItem('yatra:quick_add', '1') } catch {}
+                  handleSelect('plan')
+                  window.dispatchEvent(new Event('yatra:quick-add'))
+                }}
                 className="flex flex-col items-start p-3 rounded-2xl bg-emerald-50/70 hover:bg-emerald-100/70 border border-emerald-200/50 transition-all text-left group"
               >
                 <div className="size-8 rounded-xl bg-emerald-700 text-white grid place-items-center mb-2 shadow-xs group-hover:scale-105 transition-transform">

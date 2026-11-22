@@ -3,6 +3,7 @@ import { useCol, add, update, remove, updateTrip } from '../data'
 import { askJSON, aiAvailable } from '../ai'
 import { inr } from '../settle'
 import AddToPlan from '../components/AddToPlan'
+import { parseMapsUrl, resolvePlaceLink, isShortMapsLink } from '../links'
 
 // Trip destinations (e.g. Dandeli → Gokarna → Murudeshwar) with a shared wishlist of things to do in each.
 // Ideas live in trips/{id}/ideas until someone schedules one onto a day ("+ Day"), which creates a plan stop.
@@ -123,13 +124,30 @@ Give 8 to 10 ideas.`],
     e.preventDefault()
     const t = own.trim()
     if (!t) return
-    add(tripId, 'ideas', { dest, title: t, place: `${t}, ${dest}`, kind: 'place', why: '', source: 'manual', mustSee: false, by: uid })
     setOwn('')
+    if (/^https?:\/\//i.test(t)) {
+      // A Google Maps link: name the idea after the place and keep its exact pin.
+      const m = parseMapsUrl(t)
+      const base = { dest, place: t, kind: 'place', why: '', source: 'manual', mustSee: false, by: uid }
+      if (m) {
+        add(tripId, 'ideas', { ...base, title: (m.name || 'Place from link').split(',')[0], ...(m.lat != null ? { lat: m.lat, lng: m.lng } : {}) })
+      } else if (isShortMapsLink(t)) {
+        add(tripId, 'ideas', { ...base, title: 'Opening link…' }).then((ref) => {
+          resolvePlaceLink(t).then((r) => update(tripId, 'ideas', ref.id, r
+            ? { title: (r.name || 'Place from link').split(',')[0], ...(r.lat != null ? { lat: r.lat, lng: r.lng } : {}) }
+            : { title: 'Place from link (couldn’t open)' }))
+        })
+      } else {
+        add(tripId, 'ideas', { ...base, title: 'Saved link' })
+      }
+      return
+    }
+    add(tripId, 'ideas', { dest, title: t, place: `${t}, ${dest}`, kind: 'place', why: '', source: 'manual', mustSee: false, by: uid })
   }
 
   async function schedule(idea, { date, time, duration }) {
     if (!date) return
-    const id = await onSchedule({ title: idea.title, place: idea.place, kind: idea.kind, time, duration: duration || idea.duration, cost: idea.cost, why: idea.why, needsBooking: idea.needsBooking }, date)
+    const id = await onSchedule({ title: idea.title, place: idea.place, kind: idea.kind, time, duration: duration || idea.duration, cost: idea.cost, why: idea.why, needsBooking: idea.needsBooking, lat: idea.lat, lng: idea.lng }, date)
     setPicking(null)
     update(tripId, 'ideas', idea.id, { plannedOn: date, planId: id?.id || null })
   }

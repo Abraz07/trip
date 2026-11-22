@@ -9,6 +9,7 @@ import { inr } from '../settle'
 import { driveTime, parseDuration, toMin, fmtMin } from '../routing'
 import Destinations from './Destinations'
 import { locateStop } from '../locateStop'
+import { parseMapsUrl, resolvePlaceLink, isShortMapsLink } from '../links'
 import AddToPlan, { nextFreeTime } from '../components/AddToPlan'
 import PlanChat from './PlanChat'
 import { WhatsAppButton } from '../share'
@@ -222,6 +223,20 @@ export default function Plan({ tripId, trip, uid, setTab, members = [], byId = {
   const activeDayObj = days.find((d) => d.date === today) || days[0] || { n: 1, date: today }
   const activeDayStops = items.filter((i) => i.date === activeDayObj.date)
   const activeDayCost = activeDayStops.reduce((s, i) => s + (Number(i.cost) || 0), 0)
+
+  // ＋ → "Add to Plan" in the bottom bar opens the add-stop form here.
+  useEffect(() => {
+    const open = () => {
+      try {
+        if (!sessionStorage.getItem('yatra:quick_add')) return
+        sessionStorage.removeItem('yatra:quick_add')
+      } catch {}
+      startAddStop()
+    }
+    open()
+    window.addEventListener('yatra:quick-add', open)
+    return () => window.removeEventListener('yatra:quick-add', open)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Smoothly initiate stop creation on a specific date, expanding and scrolling to it
   function startAddStop(targetDate) {
@@ -1131,10 +1146,44 @@ function StopForm({ initial, days, onSave, onCancel }) {
   })
 
   const set = (k) => (e) => setV({ ...v, [k]: e.target.value })
+  const [linkNote, setLinkNote] = useState('')
+
+  // Paste a Google Maps link (into the place *or* the title): use the place's name as the title and keep
+  // its exact pin. Short maps.app.goo.gl links are opened in the background (can take a minute the first time).
+  function onLink(field) {
+    return (e) => {
+      const value = e.target.value.trim()
+      const isLink = /^https?:\/\//i.test(value)
+      if (!isLink) return setV({ ...v, [field]: e.target.value })
+      const next = { ...v, place: value, title: field === 'title' ? '' : v.title }
+      const m = parseMapsUrl(value)
+      if (m) {
+        if (!next.title.trim() && m.name) next.title = m.name.split(',')[0]
+        if (m.lat != null) { next.linkLat = m.lat; next.linkLng = m.lng }
+        setLinkNote(m.lat != null ? `📍 Exact pin from the link${m.name ? `: ${m.name.split(',')[0]}` : ''}` : '')
+        return setV(next)
+      }
+      setV(next)
+      if (isShortMapsLink(value)) {
+        setLinkNote('Opening the link… (can take up to a minute the first time)')
+        resolvePlaceLink(value).then((r) => {
+          if (!r) return setLinkNote('Couldn’t open this short link. Add the place name in the title instead.')
+          setV((cur) => ({
+            ...cur,
+            title: cur.title.trim() ? cur.title : (r.name || '').split(',')[0],
+            ...(r.lat != null ? { linkLat: r.lat, linkLng: r.lng } : {}),
+          }))
+          setLinkNote(`📍 Found: ${(r.name || '').split(',').slice(0, 2).join(',')}`)
+        })
+      } else {
+        setLinkNote('Only Google Maps links can be read — other links are saved as-is.')
+      }
+    }
+  }
 
   function submit(e) {
     e.preventDefault()
-    const { id, createdAt, lat, lng, ...rest } = v
+    const { id, createdAt, lat, lng, linkLat, linkLng, ...rest } = v
     const out = {
       ...rest,
       title: rest.title.trim(),
@@ -1145,6 +1194,8 @@ function StopForm({ initial, days, onSave, onCancel }) {
       out.lat = null
       out.lng = null
     }
+    if (typeof linkLat === 'number') { out.lat = linkLat; out.lng = linkLng }
+    if (!out.title) out.title = 'Place from link'
     onSave(out)
   }
 
@@ -1181,7 +1232,7 @@ function StopForm({ initial, days, onSave, onCancel }) {
         className="input text-xs"
         placeholder="Stop title (e.g. Om Beach Sunrise Walk, Cafe 1984, Kali River Rafting…)"
         value={v.title}
-        onChange={set('title')}
+        onChange={onLink('title')}
       />
 
       {/* Time & Duration: 2 spacious columns */}
@@ -1224,8 +1275,9 @@ function StopForm({ initial, days, onSave, onCancel }) {
             className="input mt-1 text-xs"
             placeholder="Place name or Maps link"
             value={v.place}
-            onChange={set('place')}
+            onChange={onLink('place')}
           />
+          {linkNote && <span className="block mt-1 text-[11px] font-normal text-[#59413A]">{linkNote}</span>}
         </label>
       </div>
 
