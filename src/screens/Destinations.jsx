@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { useCol, add, update, remove, updateTrip } from '../data'
 import { askJSON, aiAvailable } from '../ai'
 import { inr } from '../settle'
+import AddToPlan from '../components/AddToPlan'
 
 // Trip destinations (e.g. Dandeli → Gokarna → Murudeshwar) with a shared wishlist of things to do in each.
 // Ideas live in trips/{id}/ideas until someone schedules one onto a day ("+ Day"), which creates a plan stop.
 const KIND_ICON = { place: '📍', activity: '🎯', food: '🍽️', stay: '🏨', travel: '🚗' }
 const dayShort = (d) => `Day ${d.n} · ${new Date(d.date + 'T00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' })}`
 
-export default function Destinations({ tripId, trip, uid, days, onSchedule, planIds }) {
+export default function Destinations({ tripId, trip, uid, days, onSchedule, planIds, suggestTime }) {
   const dests = trip.destinations || []
   const ideas = useCol(tripId, 'ideas')
   const [name, setName] = useState('')
@@ -54,13 +55,14 @@ export default function Destinations({ tripId, trip, uid, days, onSchedule, plan
       </form>
       {open && dests.includes(open) && (
         <DestinationIdeas key={open} dest={open} tripId={tripId} trip={trip} uid={uid} days={days}
-          ideas={ideas.filter((x) => x.dest === open).map((x) => (x.planId && !planIds.has(x.planId) ? { ...x, plannedOn: null } : x))} onSchedule={onSchedule} />
+          ideas={ideas.filter((x) => x.dest === open).map((x) => (x.planId && !planIds.has(x.planId) ? { ...x, plannedOn: null } : x))} onSchedule={onSchedule} suggestTime={suggestTime} />
       )}
     </div>
   )
 }
 
-function DestinationIdeas({ dest, tripId, trip, uid, days, ideas, onSchedule }) {
+function DestinationIdeas({ dest, tripId, trip, uid, days, ideas, onSchedule, suggestTime }) {
+  const [picking, setPicking] = useState(null) // idea id whose day/time is being chosen
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [own, setOwn] = useState('')
@@ -125,9 +127,10 @@ Give 8 to 10 ideas.`],
     setOwn('')
   }
 
-  async function schedule(idea, date) {
+  async function schedule(idea, { date, time, duration }) {
     if (!date) return
-    const id = await onSchedule({ title: idea.title, place: idea.place, kind: idea.kind, duration: idea.duration, cost: idea.cost, why: idea.why, needsBooking: idea.needsBooking }, date)
+    const id = await onSchedule({ title: idea.title, place: idea.place, kind: idea.kind, time, duration: duration || idea.duration, cost: idea.cost, why: idea.why, needsBooking: idea.needsBooking }, date)
+    setPicking(null)
     update(tripId, 'ideas', idea.id, { plannedOn: date, planId: id?.id || null })
   }
 
@@ -151,12 +154,15 @@ Give 8 to 10 ideas.`],
               </p>
               {x.plannedOn
                 ? <p className="text-[11px] font-semibold text-teal-700 mt-1">✓ In plan · {dayShort(days.find((d) => d.date === x.plannedOn) || { n: '?', date: x.plannedOn })}</p>
-                : (
-                  <select aria-label={`Schedule ${x.title}`} className="mt-1.5 text-xs border border-teal-700 text-teal-700 rounded-full px-2 py-1 bg-white" value="" onChange={(e) => schedule(x, e.target.value)}>
-                    <option value="">+ Add to a day…</option>
-                    {days.map((d) => <option key={d.date} value={d.date}>{dayShort(d)}</option>)}
-                  </select>
-                )}
+                : picking === x.id
+                  ? <AddToPlan title={x.title} days={days} initialDuration={x.duration} suggestTime={suggestTime}
+                      onCancel={() => setPicking(null)} onConfirm={(when) => schedule(x, when)} />
+                  : (
+                    <button type="button" onClick={() => setPicking(x.id)}
+                      className="mt-1.5 text-xs border border-teal-700 text-teal-700 rounded-full px-2.5 py-1 bg-white font-medium">
+                      + Add to plan
+                    </button>
+                  )}
             </div>
             <button aria-label={`Remove ${x.title}`} className="text-slate-300 hover:text-red-500 text-sm px-1" onClick={() => remove(tripId, 'ideas', x.id)}>✕</button>
           </li>

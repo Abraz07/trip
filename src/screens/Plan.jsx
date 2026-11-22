@@ -8,6 +8,7 @@ import { askJSON, aiAvailable } from '../ai'
 import { inr } from '../settle'
 import { driveTime, parseDuration, toMin, fmtMin } from '../routing'
 import Destinations from './Destinations'
+import AddToPlan, { nextFreeTime } from '../components/AddToPlan'
 import PlanChat from './PlanChat'
 import { WhatsAppButton } from '../share'
 
@@ -292,6 +293,7 @@ export default function Plan({ tripId, trip, uid, setTab }) {
                 uid={uid}
                 days={days}
                 onSchedule={addStop}
+                suggestTime={(date) => nextFreeTime(items, date)}
                 planIds={new Set(items.map((i) => i.id))}
               />
             </div>
@@ -743,7 +745,8 @@ export default function Plan({ tripId, trip, uid, setTab }) {
                   <Suggestions
                     stops={a.data.stops || []}
                     existing={new Set(fullList.map((i) => i.title.toLowerCase()))}
-                    onAdd={(s) => addStop(s, d.date)}
+                    onAdd={(s, when) => addStop({ ...s, time: when.time, duration: when.duration || s.duration }, when.date)}
+                    days={days} date={d.date} suggestTime={(date) => nextFreeTime(items, date)}
                     onClose={() => setAi((x) => ({ ...x, [d.date]: null }))}
                   />
                 )}
@@ -1100,7 +1103,7 @@ function StopForm({ initial, days, onSave, onCancel }) {
         onChange={set('place')}
       />
 
-      {initial.id && (
+      {(initial.id || days.length > 1) && (
         <label className="block text-xs font-medium text-slate-600">
           Day
           <select className="input mt-1 text-xs" value={v.date} onChange={set('date')}>
@@ -1500,8 +1503,9 @@ function Needs({ data, packed, onAdd, onClose }) {
 }
 
 // Stop Suggestions (Clean inline list)
-function Suggestions({ stops, existing, onAdd, onClose }) {
+function Suggestions({ stops, existing, onAdd, onClose, days, date, suggestTime }) {
   const [added, setAdded] = useState(new Set())
+  const [picking, setPicking] = useState(null) // index of the idea whose day/time is being chosen
 
   return (
     <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2 text-xs">
@@ -1519,7 +1523,8 @@ function Suggestions({ stops, existing, onAdd, onClose }) {
           {stops.map((s, i) => {
             const done = added.has(i) || existing.has(s.title.toLowerCase())
             return (
-              <div key={i} className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200 gap-2">
+              <div key={i} className="p-2 rounded-lg bg-white border border-slate-200">
+              <div className="flex items-center justify-between gap-2">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <span className="font-semibold text-slate-900 break-words">{s.title}</span>
@@ -1531,14 +1536,17 @@ function Suggestions({ stops, existing, onAdd, onClose }) {
                 </div>
                 <button
                   disabled={done}
-                  onClick={() => {
-                    onAdd(s)
-                    setAdded(new Set(added).add(i))
-                  }}
+                  onClick={() => setPicking(picking === i ? null : i)}
                   className="text-[11px] shrink-0 rounded-md border border-slate-200 px-2 py-0.5 font-medium disabled:opacity-40"
                 >
-                  {done ? 'Added ✓' : '+ Add'}
+                  {done ? 'Added ✓' : picking === i ? 'Close' : '+ Add'}
                 </button>
+              </div>
+              {picking === i && !done && (
+                <AddToPlan title={s.title} days={days} initialDate={date} initialTime={s.time} initialDuration={s.duration}
+                  suggestTime={suggestTime} onCancel={() => setPicking(null)}
+                  onConfirm={async (when) => { await onAdd(s, when); setAdded(new Set(added).add(i)); setPicking(null) }} />
+              )}
               </div>
             )
           })}
