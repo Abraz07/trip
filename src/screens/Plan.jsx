@@ -54,7 +54,7 @@ export default function Plan({ tripId, trip, uid, setTab }) {
       const data = mode === 'needs'
         ? await askJSON({
             system: 'You are a practical Indian travel planner. Be specific to the planned stops, concise, no generic filler.',
-            parts: [`${ctx}\n\nWhat should the group carry, prepare or book for this day? Give packing essentials tied to specific stops, things to book or check in advance (permits, tickets, tide/opening times, cash-only places), and short practical tips.`],
+            parts: [`${ctx}\n\nWhat should the group carry, prepare or book for this day? Give up to 6 packing essentials tied to specific stops, things to book or check in advance (permits, tickets, tide/opening times, cash-only places), and short practical tips.`],
             schema: {
               type: 'OBJECT',
               properties: {
@@ -64,6 +64,7 @@ export default function Plan({ tripId, trip, uid, setTab }) {
               },
               required: ['essentials', 'prepare', 'tips'],
             },
+            thinking: 'minimal',
           })
         : await askJSON({
             system: 'You are a local Indian travel expert. Suggest real, specific, well-known places only. Never invent places.',
@@ -76,6 +77,7 @@ export default function Plan({ tripId, trip, uid, setTab }) {
               required: ['stops'],
             },
             temperature: 0.6,
+            thinking: 'minimal',
           })
       setAi((a) => ({ ...a, [day.date]: { mode, data } }))
     } catch (e) {
