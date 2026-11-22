@@ -2,7 +2,6 @@ import { useRef, useState } from 'react'
 import { compress } from './Photos'
 import { readBill, itemSplits } from '../scan'
 import { inr } from '../settle'
-import { getGeminiApiKey, saveGeminiApiKey } from '../gemini'
 import { splitChat, describeBill } from '../splitAI'
 
 export default function ScanBill({ uid, members, onSave, onCancel }) {
@@ -13,8 +12,6 @@ export default function ScanBill({ uid, members, onSave, onCancel }) {
   const [bill, setBill] = useState(null)
   const [assign, setAssign] = useState([])
   const [paidBy, setPaidBy] = useState(uid)
-  const [showKeyInput, setShowKeyInput] = useState(false)
-  const [customKey, setCustomKey] = useState(getGeminiApiKey)
   const everyone = members.map((m) => m.id)
   const [chat, setChat] = useState([]) // { role: 'you' | 'ai', text }
   const [msg, setMsg] = useState('')
@@ -55,7 +52,7 @@ export default function ScanBill({ uid, members, onSave, onCancel }) {
     }
   }
 
-  async function pick(file, keyOverride) {
+  async function pick(file) {
     if (!file && !preview) return
     setStage('reading')
     setErr('')
@@ -65,7 +62,7 @@ export default function ScanBill({ uid, members, onSave, onCancel }) {
         img = await compress(file, 1600, 0.85)
         setPreview(img)
       }
-      const b = await readBill(img, keyOverride || customKey)
+      const b = await readBill(img)
       if (!b.items.length) throw new Error("Couldn't find any items — try a sharper, straight-on photo.")
       setBill(b)
       setAssign(b.items.map(() => [...everyone]))
@@ -74,19 +71,6 @@ export default function ScanBill({ uid, members, onSave, onCancel }) {
       const msg = friendly(e)
       setErr(msg)
       setStage('error')
-      if (/AI Logic|Vertex|403|not enabled|SERVICE_DISABLED/i.test(String(e?.message || e))) {
-        setShowKeyInput(true)
-      }
-    }
-  }
-
-  function handleSaveKey(e) {
-    e.preventDefault()
-    if (!customKey.trim()) return
-    saveGeminiApiKey(customKey.trim())
-    setShowKeyInput(false)
-    if (preview) {
-      pick(null, customKey.trim())
     }
   }
 
@@ -128,23 +112,6 @@ export default function ScanBill({ uid, members, onSave, onCancel }) {
           <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-left space-y-2">
             <p className="text-xs font-semibold text-red-800">⚠️ Bill Scanning Notice</p>
             <p className="text-xs text-red-700">{err}</p>
-            {showKeyInput && (
-              <form onSubmit={handleSaveKey} className="pt-2 border-t border-red-200 space-y-2">
-                <p className="text-xs text-slate-700 font-medium">Use a free Gemini API key from Google AI Studio:</p>
-                <input
-                  type="password"
-                  required
-                  placeholder="Paste AIzaSy... key"
-                  className="input text-xs py-1.5"
-                  value={customKey}
-                  onChange={(e) => setCustomKey(e.target.value)}
-                />
-                <div className="flex justify-between items-center text-xs">
-                  <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-teal-700 underline">Get free key ↗</a>
-                  <button type="submit" className="btn py-1 px-3 text-xs">Save & Retry</button>
-                </div>
-              </form>
-            )}
           </div>
         )}
         {stage !== 'reading' && (
@@ -160,33 +127,6 @@ export default function ScanBill({ uid, members, onSave, onCancel }) {
                 placeholder="Dinner at Namaste 1450, Ravi paid. Ravi and I had fish thali (480), Priya had veg biryani (180), rest shared" />
               <button disabled={!describe.trim()} className="btn-ghost w-full text-sm">✨ Split it for me</button>
             </form>
-            {!showKeyInput && stage !== 'error' && (
-              <button
-                type="button"
-                onClick={() => setShowKeyInput(true)}
-                className="text-xs text-slate-400 hover:text-slate-600 underline"
-              >
-                Configure Gemini API key
-              </button>
-            )}
-            {showKeyInput && stage !== 'error' && (
-              <div className="pt-2 text-left bg-slate-50 p-3 rounded-xl border border-slate-200">
-                <form onSubmit={handleSaveKey} className="space-y-2">
-                  <p className="text-xs font-medium text-slate-700">Gemini Vision API Key:</p>
-                  <input
-                    type="password"
-                    placeholder="AIzaSy..."
-                    className="input text-xs py-1.5"
-                    value={customKey}
-                    onChange={(e) => setCustomKey(e.target.value)}
-                  />
-                  <div className="flex justify-between items-center text-xs">
-                    <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-teal-700 underline">Get key ↗</a>
-                    <button type="submit" className="btn py-1 px-3 text-xs">Save</button>
-                  </div>
-                </form>
-              </div>
-            )}
           </>
         )}
       </section>
@@ -267,9 +207,10 @@ export default function ScanBill({ uid, members, onSave, onCancel }) {
 function friendly(e) {
   const m = String(e?.message || e)
   if (/api-not-enabled|AI Logic|firebasevertexai|generativelanguage|SERVICE_DISABLED|403/i.test(m)) {
-    return 'Direct Firebase AI Logic is not enabled on this Firebase project. Enter a free Gemini API key below to scan instantly with Gemini Vision.'
+    return 'Bill scanning isn’t available right now. Use “Just describe it” below, or add the expense manually.'
   }
-  if (/quota|429|RESOURCE_EXHAUSTED/i.test(m)) return 'Too many scans right now — wait a minute and try again.'
+  if (/quota|429|RESOURCE_EXHAUSTED|free daily limit/i.test(m)) return 'Bill scanning has hit today’s free limit. Try again later, or add the expense manually.'
+  if (/key is required/i.test(m)) return 'Bill scanning isn’t set up for this app yet. Add the expense manually for now.'
   if (/network|fetch|offline/i.test(m)) return 'No internet — bill scan needs a connection. Add it manually for now.'
   return m
 }
