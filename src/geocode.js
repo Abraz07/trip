@@ -76,25 +76,28 @@ async function lookup(placeName) {
     } catch {}
   }
 
+  // OpenStreetMap often misses "Place, Town" (e.g. "Mirjan Fort, Kumta") but finds "Mirjan Fort Kumta"
+  // or "Mirjan Fort", so try progressively simpler versions before giving up.
+  const parts = searchQuery.split(',').map((p) => p.trim()).filter(Boolean)
+  const candidates = [...new Set([searchQuery, parts.join(' '), parts[0]].filter(Boolean))]
+
   try {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(searchQuery)}`
-    const res = await throttle(() => fetch(url, {
-      headers: {
-        'Accept-Language': 'en',
-      },
-    }))
-    if (!res.ok) return null
-    const data = await res.json()
-    if (Array.isArray(data) && data.length > 0) {
-      const point = {
-        lat: parseFloat(data[0].lat),
-        lng: parseFloat(data[0].lon),
-        displayName: data[0].display_name,
+    for (const q of candidates) {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`
+      const res = await throttle(() => fetch(url, { headers: { 'Accept-Language': 'en' } }))
+      if (!res.ok) return null // server trouble: don't cache a miss, try again next time
+      const data = await res.json()
+      if (Array.isArray(data) && data.length > 0) {
+        const point = {
+          lat: parseFloat(data[0].lat),
+          lng: parseFloat(data[0].lon),
+          displayName: data[0].display_name,
+        }
+        try {
+          localStorage.setItem(cacheKey, JSON.stringify(point))
+        } catch {}
+        return point
       }
-      try {
-        localStorage.setItem(cacheKey, JSON.stringify(point))
-      } catch {}
-      return point
     }
     try {
       localStorage.setItem(cacheKey, MISS)
