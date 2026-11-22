@@ -1,5 +1,5 @@
 // Opens WhatsApp with a ready message; the user picks the group and taps Send.
-export const tripLink = (tripId) => `${location.origin}/#/t/${tripId}`
+export const tripLink = (tripId) => `${typeof location !== 'undefined' ? location.origin : ''}/#/t/${tripId}`
 export const waUrl = (text) => `https://wa.me/?text=${encodeURIComponent(text)}`
 
 export function WhatsAppButton({ text, label = 'Share on WhatsApp', className = '' }) {
