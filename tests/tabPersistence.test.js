@@ -45,4 +45,15 @@ describe('Trip Tab Persistence and Hash Sync', () => {
     mockStorage.setItem(`yatra:tab:${tripId}`, 'hackedTab')
     expect(getActiveTab(tripId, `#/t/${tripId}`, mockStorage)).toBe('today')
   })
+
+  it('keeps active tab state isolated between different trips', () => {
+    // URL for trip-B does not pollute trip-A
+    expect(getActiveTab('trip-A', '#/t/trip-B/money', mockStorage)).toBe('today')
+
+    // Each trip has its own independent saved tab in storage
+    saveActiveTab('trip-A', 'plan', mockStorage)
+    saveActiveTab('trip-B', 'money', mockStorage)
+    expect(getActiveTab('trip-A', '#/t/trip-A', mockStorage)).toBe('plan')
+    expect(getActiveTab('trip-B', '#/t/trip-B', mockStorage)).toBe('money')
+  })
 })

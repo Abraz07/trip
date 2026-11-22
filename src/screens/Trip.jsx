@@ -59,7 +59,8 @@ export default function Trip({ tripId, uid, onUserChange }) {
   useEffect(() => {
     saveActiveTab(tripId, tab)
     const expectedHash = `#/t/${tripId}/${tab}`
-    if (location.hash.startsWith(`#/t/${tripId}`) && location.hash !== expectedHash) {
+    const isCurrentTrip = location.hash === `#/t/${tripId}` || location.hash.startsWith(`#/t/${tripId}/`)
+    if (isCurrentTrip && location.hash !== expectedHash) {
       history.replaceState(null, '', expectedHash)
     }
   }, [tripId, tab])

@@ -6,10 +6,15 @@ export function getActiveTab(
   storage = (typeof sessionStorage !== 'undefined' ? sessionStorage : null)
 ) {
   // 1. Check URL hash: #/t/:tripId/:tab
-  const match = (hash || '').match(/^#\/t\/[\w-]+\/(\w+)/)
-  if (match && VALID_TABS.includes(match[1])) {
-    return match[1]
+  const match = (hash || '').match(/^#\/t\/([\w-]+)(?:\/(\w+))?/)
+  if (match) {
+    const hashTripId = match[1]
+    const hashTab = match[2]
+    if (hashTripId === tripId && hashTab && VALID_TABS.includes(hashTab)) {
+      return hashTab
+    }
   }
+
   // 2. Check sessionStorage for this trip
   try {
     if (storage) {
@@ -19,6 +24,7 @@ export function getActiveTab(
       }
     }
   } catch {}
+
   // 3. Fallback to 'today'
   return 'today'
 }
