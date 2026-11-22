@@ -127,7 +127,6 @@ export default function Map({ tripId, trip, uid, byId }) {
   })
   const [locating, setLocating] = useState(false)
   const [err, setErr] = useState(null)
-  const [showLocationModal, setShowLocationModal] = useState(false)
   const [permissionBlockedModal, setPermissionBlockedModal] = useState(false)
   const [permissionSource, setPermissionSource] = useState('share')
 
@@ -289,32 +288,15 @@ export default function Map({ tripId, trip, uid, byId }) {
     return () => navigator.geolocation.clearWatch(id)
   }, [sharing, tripId, uid])
 
-  // Auto-prompt permission check if never prompted
-  useEffect(() => {
-    try {
-      const seen = sessionStorage.getItem('yatra:loc_prompt_seen')
-      if (!seen && !sharing && !userCoords) {
-        if (navigator.permissions?.query) {
-          navigator.permissions.query({ name: 'geolocation' }).then((p) => {
-            if (p.state === 'prompt') {
-              setPermissionSource('share')
-              setShowLocationModal(true)
-              sessionStorage.setItem('yatra:loc_prompt_seen', '1')
-            }
-          }).catch(() => {})
-        }
-      }
-    } catch {}
-  }, [])
-
   function handleToggleShare() {
     if (sharing) {
       setSharing(false)
       update(tripId, 'locations', uid, { sharing: false }).catch(() => {})
       try { localStorage.setItem(shareKey(tripId), '0') } catch {}
     } else {
+      // Ask straight away: the browser shows the phone's own location popup (iOS/Android).
       setPermissionSource('share')
-      setShowLocationModal(true)
+      requestLocationAccess('share')
     }
   }
 
@@ -328,13 +310,12 @@ export default function Map({ tripId, trip, uid, byId }) {
       return
     }
     setPermissionSource('locate')
-    setShowLocationModal(true)
+    requestLocationAccess('locate')
   }
 
   function requestLocationAccess(action = 'share') {
     if (!navigator.geolocation) {
       alert('Geolocation is not supported by your browser.')
-      setShowLocationModal(false)
       return
     }
 
@@ -342,7 +323,6 @@ export default function Map({ tripId, trip, uid, byId }) {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setLocating(false)
-        setShowLocationModal(false)
         setPermissionBlockedModal(false)
         setErr(null)
         const coords = [pos.coords.latitude, pos.coords.longitude]
@@ -365,7 +345,6 @@ export default function Map({ tripId, trip, uid, byId }) {
       },
       (e) => {
         setLocating(false)
-        setShowLocationModal(false)
         if (e.code === 1) { // PERMISSION_DENIED
           setPermissionBlockedModal(true)
           setErr('Location permission blocked in browser.')
@@ -1277,95 +1256,6 @@ export default function Map({ tripId, trip, uid, byId }) {
             >
               Cancel
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* Location Permission Explanation Modal */}
-      {showLocationModal && (
-        <div
-          className="fixed inset-0 z-[1100] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in"
-          onClick={() => setShowLocationModal(false)}
-        >
-          <div
-            className="bg-white rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl text-center relative overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Top Graphic / Radar Icon */}
-            <div className="relative mx-auto size-20 grid place-items-center mt-1">
-              <div className="absolute inset-0 rounded-full bg-teal-500/20 yatra-radar-ring" />
-              <div className="size-16 rounded-2xl bg-gradient-to-tr from-teal-700 to-emerald-500 shadow-xl grid place-items-center text-white text-3xl">
-                📍
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <h3 className="font-extrabold text-lg text-slate-900 leading-tight">
-                Enable Live Location
-              </h3>
-              <p className="text-xs text-slate-500">
-                Make the most of your trip with real-time navigation and gang radar.
-              </p>
-            </div>
-
-            {/* Benefits List */}
-            <div className="bg-slate-50 rounded-2xl p-3 text-left space-y-2.5 border border-slate-100">
-              <div className="flex items-start gap-2.5">
-                <span className="text-base shrink-0 mt-0.5">👥</span>
-                <div>
-                  <p className="text-xs font-bold text-slate-800">Gang Radar</p>
-                  <p className="text-[11px] text-slate-500 leading-tight">
-                    See where your friends are on the map in real time so nobody gets lost.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-2.5">
-                <span className="text-base shrink-0 mt-0.5">🚗</span>
-                <div>
-                  <p className="text-xs font-bold text-slate-800">Live Stop Distances</p>
-                  <p className="text-[11px] text-slate-500 leading-tight">
-                    Know exact distance and travel time from your location to every stop.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-2.5">
-                <span className="text-base shrink-0 mt-0.5">🚨</span>
-                <div>
-                  <p className="text-xs font-bold text-slate-800">Meet Point Directions</p>
-                  <p className="text-[11px] text-slate-500 leading-tight">
-                    Instant 1-tap navigation to the group meeting spot or hotel.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Privacy Guarantee Note */}
-            <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
-              <span>🔒</span>
-              <span>Only active while app is open · Private to this trip</span>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="space-y-2 pt-1">
-              <button
-                type="button"
-                onClick={() => requestLocationAccess(permissionSource)}
-                disabled={locating}
-                className="btn w-full py-2.5 text-xs font-bold shadow-lg shadow-teal-700/20 flex items-center justify-center gap-1.5"
-              >
-                {locating ? 'Requesting Access…' : 'Allow Location Access'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowLocationModal(false)}
-                className="text-xs font-semibold text-slate-400 hover:text-slate-600 py-1"
-              >
-                Maybe Later
-              </button>
-            </div>
           </div>
         </div>
       )}
