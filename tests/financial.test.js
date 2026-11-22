@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { balances, settleUp, equalSplit, inr, upiLink } from '../src/settle'
+import { balances, settleUp, equalSplit, shareSplit, percentSplit, exactSplit, inr, upiLink, detectCategory } from '../src/settle'
 import { itemSplits } from '../src/scan'
 
 describe('Equal Split Algorithm', () => {
@@ -37,6 +37,40 @@ describe('Equal Split Algorithm', () => {
     const sum = Object.values(splits).reduce((a, b) => a + b, 0)
     expect(Math.round(sum * 100) / 100).toBe(total)
   })
+
+  it('calculates share-based splits accurately with remainder allocation', () => {
+    // 300 total, Alice 2 shares, Bob 1 share -> Alice 200, Bob 100
+    const s1 = shareSplit(300, { alice: 2, bob: 1 })
+    expect(s1.alice).toBe(200)
+    expect(s1.bob).toBe(100)
+
+    // Indivisible 100 with 1:1:1
+    const s2 = shareSplit(100, { alice: 1, bob: 1, charlie: 1 })
+    const sum = Object.values(s2).reduce((a, b) => a + b, 0)
+    expect(Math.round(sum * 100) / 100).toBe(100)
+  })
+
+  it('calculates percentage-based splits with zero penny loss', () => {
+    // 500 total, 60% / 40%
+    const p1 = percentSplit(500, { alice: 60, bob: 40 })
+    expect(p1.alice).toBe(300)
+    expect(p1.bob).toBe(200)
+
+    // 100 split 33.33% / 33.33% / 33.34%
+    const p2 = percentSplit(100, { a: 33.33, b: 33.33, c: 33.34 })
+    const sum = Object.values(p2).reduce((a, b) => a + b, 0)
+    expect(Math.round(sum * 100) / 100).toBe(100)
+  })
+
+  it('detects travel expense categories accurately', () => {
+    expect(detectCategory('Dinner at Shack')).toBe('food')
+    expect(detectCategory('Airport Uber Taxi')).toBe('transport')
+    expect(detectCategory('Taj Resort Stay')).toBe('stay')
+    expect(detectCategory('Scuba Diving Ticket')).toBe('activity')
+    expect(detectCategory('Beer & Chips from Mart')).toBe('groceries')
+    expect(detectCategory('Souvenir T-shirt')).toBe('shopping')
+    expect(detectCategory('Miscellaneous tip')).toBe('other')
+  })
 })
 
 describe('Balances Calculation', () => {
@@ -70,6 +104,21 @@ describe('Balances Calculation', () => {
     // Sum of all balances in closed system must strictly equal zero
     const sum = Object.values(bal).reduce((a, b) => a + b, 0)
     expect(sum).toBe(0)
+  })
+
+  it('records settlement payment and properly zeroes out debt', () => {
+    const members = [{ id: 'alice' }, { id: 'bob' }]
+    const expenses = [
+      // Alice paid 400 for both (Bob owes 200)
+      { amount: 400, paidBy: 'alice', splits: { alice: 200, bob: 200 } },
+      // Bob records settlement: paid 200 to Alice
+      { type: 'settlement', amount: 200, paidBy: 'bob', splits: { alice: 200 } },
+    ]
+    const bal = balances(expenses, members)
+    expect(bal.alice).toBe(0)
+    expect(bal.bob).toBe(0)
+    const txns = settleUp(bal)
+    expect(txns).toEqual([])
   })
 })
 
