@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { configured, ensureUser } from './firebase'
 import Home from './screens/Home'
 import Trip from './screens/Trip'
+import NetworkStatus from './components/NetworkStatus'
 
 const parseRoute = () => (location.hash.match(/^#\/t\/([\w-]+)/) || [])[1] || null
 
@@ -24,7 +25,12 @@ export default function App() {
   if (error) return <Center><p className="text-red-600">Couldn't sign in: {error}</p><p className="text-sm text-slate-500 mt-2">Check that Anonymous auth is enabled in Firebase.</p></Center>
   if (!user) return <Center><p className="text-slate-500">Loading…</p></Center>
 
-  return tripId ? <Trip tripId={tripId} uid={user.uid} /> : <Home uid={user.uid} />
+  return (
+    <>
+      <NetworkStatus />
+      {tripId ? <Trip tripId={tripId} uid={user.uid} user={user} /> : <Home uid={user.uid} user={user} onUserChange={setUser} />}
+    </>
+  )
 }
 
 export const Center = ({ children }) => (

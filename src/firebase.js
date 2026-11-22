@@ -1,5 +1,13 @@
 import { initializeApp } from 'firebase/app'
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth'
+import {
+  getAuth,
+  signInAnonymously,
+  onAuthStateChanged,
+  GoogleAuthProvider,
+  linkWithPopup,
+  signInWithPopup,
+  signOut,
+} from 'firebase/auth'
 import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check'
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore'
 import { getStorage } from 'firebase/storage'
@@ -18,7 +26,6 @@ export const configured = Boolean(config.apiKey && config.projectId)
 export const app = configured ? initializeApp(config) : null
 
 // App Check proves requests come from this app (required for bill scan / Gemini).
-// On localhost a debug token is printed to the console once — register it under App Check → Manage debug tokens.
 const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY
 if (configured && siteKey) {
   if (import.meta.env.DEV) self.FIREBASE_APPCHECK_DEBUG_TOKEN = import.meta.env.VITE_APPCHECK_DEBUG_TOKEN || true
@@ -35,8 +42,41 @@ export const storage = configured && config.storageBucket ? getStorage(app) : nu
 export function ensureUser() {
   return new Promise((resolve, reject) => {
     const off = onAuthStateChanged(auth, (u) => {
-      if (u) { off(); resolve(u) }
-      else signInAnonymously(auth).catch(reject)
+      if (u) {
+        off()
+        resolve(u)
+      } else {
+        signInAnonymously(auth).catch(reject)
+      }
     })
   })
+}
+
+// 1-Tap Google Link & Sync
+export async function linkAccountWithGoogle() {
+  if (!auth) throw new Error('Firebase Auth not initialized')
+  const provider = new GoogleAuthProvider()
+  const currentUser = auth.currentUser
+
+  if (currentUser && currentUser.isAnonymous) {
+    try {
+      const res = await linkWithPopup(currentUser, provider)
+      return res.user
+    } catch (e) {
+      if (e.code === 'auth/credential-already-in-use') {
+        const res = await signInWithPopup(auth, provider)
+        return res.user
+      }
+      throw e
+    }
+  } else {
+    const res = await signInWithPopup(auth, provider)
+    return res.user
+  }
+}
+
+export async function signOutUser() {
+  if (!auth) return
+  await signOut(auth)
+  return signInAnonymously(auth)
 }
