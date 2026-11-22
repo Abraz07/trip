@@ -22,16 +22,17 @@ export const MAP_STYLES = [
     name: 'Satellite',
     icon: '🛰️',
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    labelUrl: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',
-    attribution: 'Tiles &copy; Esri &mdash; High-Res Aerial',
+    // Place names over the photo. (CARTO's label tiles now need an API key and show a watermark.)
+    labelUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri &mdash; Maxar, Earthstar Geographics',
     maxZoom: 19,
   },
   {
     id: 'voyager',
     name: 'Travel Clean',
     icon: '🗺️',
-    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; CARTO & OpenStreetMap',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri &mdash; HERE, Garmin, OpenStreetMap',
     maxZoom: 19,
   },
   {
@@ -46,9 +47,11 @@ export const MAP_STYLES = [
     id: 'dark',
     name: 'Night Mode',
     icon: '🌙',
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; CARTO & OpenStreetMap',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    labelUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri &mdash; HERE, Garmin, OpenStreetMap',
     maxZoom: 19,
+    maxNativeZoom: 16, // Esri's dark canvas stops at z16; Leaflet scales those tiles beyond that
   },
   {
     id: 'osm',
@@ -168,6 +171,7 @@ export default function Map({ tripId, trip, uid, byId }) {
     // Base tile layer
     tileLayerRef.current = L.tileLayer(initialStyle.url, {
       maxZoom: initialStyle.maxZoom || 19,
+      maxNativeZoom: initialStyle.maxNativeZoom,
       attribution: initialStyle.attribution,
     }).addTo(map.current)
 
@@ -175,6 +179,7 @@ export default function Map({ tripId, trip, uid, byId }) {
     if (initialStyle.labelUrl) {
       labelLayerRef.current = L.tileLayer(initialStyle.labelUrl, {
         maxZoom: initialStyle.maxZoom || 19,
+      maxNativeZoom: initialStyle.maxNativeZoom,
         zIndex: 2,
       }).addTo(map.current)
     }
@@ -220,12 +225,14 @@ export default function Map({ tripId, trip, uid, byId }) {
 
     tileLayerRef.current = L.tileLayer(styleObj.url, {
       maxZoom: styleObj.maxZoom || 19,
+        maxNativeZoom: styleObj.maxNativeZoom,
       attribution: styleObj.attribution,
     }).addTo(map.current)
 
     if (styleObj.labelUrl) {
       labelLayerRef.current = L.tileLayer(styleObj.labelUrl, {
         maxZoom: styleObj.maxZoom || 19,
+        maxNativeZoom: styleObj.maxNativeZoom,
         zIndex: 2,
       }).addTo(map.current)
     }
