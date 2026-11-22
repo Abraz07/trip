@@ -86,3 +86,41 @@ ${rest.join('\n')}`],
 export const describeResolved = (r) => r.ok
   ? `${r.url} → ${[r.name, r.town].filter(Boolean).join(', ')}${r.lat != null ? ` (exact location ${r.lat.toFixed(5)},${r.lng.toFixed(5)})` : ''}${r.note ? ` — ${r.note}` : ''}`
   : `${r.url} → could not be opened (ask the user which place it is; do not guess)`
+
+// ── Short Google Maps links (maps.app.goo.gl/…, goo.gl/maps/…) ──────────────────────────────────
+// Browsers can't follow these redirects (CORS), but Gemini's URL tool does, and its metadata reports
+// the full maps.google.com address it landed on — which contains the place. We read that address,
+// not the model's answer. Slow (~30 s), so each link is resolved once and remembered.
+export const isShortMapsLink = (u) => /^https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/kgs)\//i.test(u || '')
+const LINK_CACHE = 'yatra:link:'
+const resolving = new Map()
+
+// → { name, lat?, lng? } or null. Never guesses from the link text.
+export function resolvePlaceLink(url) {
+  const direct = parseMapsUrl(url)
+  if (direct) return Promise.resolve(direct)
+  if (!isShortMapsLink(url)) return Promise.resolve(null)
+  try {
+    const c = localStorage.getItem(LINK_CACHE + url)
+    if (c) return Promise.resolve(c === 'none' ? null : JSON.parse(c))
+  } catch {}
+  if (!resolving.has(url)) {
+    resolving.set(url, (async () => {
+      let found = null
+      try {
+        const r = await askText({ parts: [`Open this link and reply with the place name only: ${url}`], urlContext: true })
+        for (const landed of Object.keys(r.urlStatus || {})) {
+          const m = parseMapsUrl(landed)
+          if (m) { found = m; break }
+        }
+      } catch {
+        resolving.delete(url)
+        return null // AI unavailable: don't remember a failure
+      }
+      try { localStorage.setItem(LINK_CACHE + url, found ? JSON.stringify(found) : 'none') } catch {}
+      resolving.delete(url)
+      return found
+    })())
+  }
+  return resolving.get(url)
+}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
+import { resolvePlaceLink } from '../links'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { serverTimestamp } from 'firebase/firestore'
@@ -246,7 +247,8 @@ export default function Map({ tripId, trip, uid, byId }) {
   // 3. Geocode plan items missing lat/lng
   useEffect(() => {
     for (const item of planItems) {
-      if (item.place && (!item.lat || !item.lng)) {
+      // lat === false means someone removed the pin on purpose; don't silently put it back.
+      if (item.place && typeof item.lat !== 'number' && item.lat !== false) {
         geocodePlace(item.place).then((coords) => {
           if (coords?.lat && coords?.lng) {
             update(tripId, 'plan', item.id, { lat: coords.lat, lng: coords.lng }).catch(() => {})
@@ -792,21 +794,39 @@ export default function Map({ tripId, trip, uid, byId }) {
   // Search handler
   async function handleSearch(e) {
     e.preventDefault()
-    if (!searchQuery.trim()) return
+    const q = searchQuery.trim()
+    if (!q) return
     setSearchLoading(true)
-    const res = await geocodePlace(searchQuery.trim())
+    let res = null
+    let label = q
+    if (/^https?:\/\//i.test(q)) {
+      // A pasted Google Maps link: decode it, or expand a short maps.app.goo.gl link (first time ~30 s).
+      const link = await resolvePlaceLink(q)
+      if (link?.lat != null) res = { lat: link.lat, lng: link.lng, displayName: link.name || '' }
+      else if (link?.name) res = await geocodePlace(link.name)
+      if (link?.name) label = link.name.split(',')[0]
+      if (!res) {
+        setSearchLoading(false)
+        alert(link === null && !/maps|goo\.gl/i.test(q)
+          ? 'Only Google Maps links can be opened here. Search the place name instead.'
+          : "Couldn't open that link. Search the place name instead, or try a full Google Maps link.")
+        return
+      }
+    } else {
+      res = await geocodePlace(q)
+    }
     setSearchLoading(false)
     if (res?.lat && res?.lng) {
       const pin = {
         lat: res.lat,
         lng: res.lng,
-        displayName: searchQuery.trim(),
+        displayName: label,
         fullAddress: res.displayName || '',
       }
       setSearchResultPin(pin)
       map.current?.flyTo([res.lat, res.lng], 15, { animate: true, duration: 1 })
     } else {
-      alert(`Could not find "${searchQuery}". Try adding the city or state.`)
+      alert(`Could not find "${q}". Try adding the city or state.`)
     }
   }
 
@@ -913,7 +933,7 @@ export default function Map({ tripId, trip, uid, byId }) {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search beaches, cafes, fuel on route…"
+              placeholder="Search a place or paste a Google Maps link…"
               className="w-full bg-white/95 backdrop-blur-md pl-9 pr-9 py-2.5 text-xs font-medium text-[#1c1917] outline-none placeholder:text-[#a8a29e]"
             />
             <span className="absolute left-3 top-2.5 text-xs text-[#78716c]">🔍</span>
@@ -1108,6 +1128,20 @@ export default function Map({ tripId, trip, uid, byId }) {
                 }`}
               >
                 <span>{activeStop.visited ? '✓ Visited' : 'Mark Visited'}</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  if (!confirm(`Remove the map pin for "${activeStop.title}"? The stop stays in your plan — tap 📍 Map Pin in Plan to place it again.`)) return
+                  update(tripId, 'plan', activeStop.id, { lat: false, lng: false }).catch(() => {})
+                  setDynamicCoords((prev) => { const n = { ...prev }; delete n[activeStop.id]; return n })
+                  setActiveStopId(null)
+                }}
+                title="Remove this pin (wrong location)"
+                aria-label={`Remove map pin for ${activeStop.title}`}
+                className="px-2.5 py-2 rounded-xl bg-white border border-[#e7e5e4] hover:bg-red-50 hover:border-red-200 text-xs font-semibold text-[#b91c1c] transition active:scale-95"
+              >
+                Remove pin
               </button>
 
               <button

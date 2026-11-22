@@ -1,3 +1,4 @@
+import { parseMapsUrl } from './links'
 // Geocoding and Location Parsing Utility for Itinerary Items
 
 const CACHE_PREFIX = 'yatra:geo:'
@@ -51,6 +52,15 @@ async function lookup(placeName) {
   if (!placeName || typeof placeName !== 'string') return null
   const query = placeName.trim()
   if (!query) return null
+
+  // 0. Links are never searched as text (that once put a Dandeli stay in Iran). Full Google Maps
+  //    links are decoded; short links are expanded explicitly elsewhere (resolvePlaceLink).
+  if (/^https?:\/\//i.test(query)) {
+    const m = parseMapsUrl(query)
+    if (m?.lat != null) return { lat: m.lat, lng: m.lng, displayName: m.name || '' }
+    if (m?.name) return geocodePlace(m.name)
+    return null
+  }
 
   // 1. Direct coordinate check
   const direct = extractCoordsFromText(query)
