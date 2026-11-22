@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useCol, add, update, remove } from '../data'
+import { useCol, add, update, remove, updateTrip } from '../data'
 import { tripDays, ymd } from './Trip'
 import { MapLink } from './Today'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -8,6 +8,7 @@ import { askJSON, aiAvailable } from '../ai'
 import { inr } from '../settle'
 import { driveTime, parseDuration, toMin, fmtMin } from '../routing'
 import Destinations from './Destinations'
+import PlanChat from './PlanChat'
 
 export const KINDS = [
   ['place', '📍', 'Sightseeing'],
@@ -32,6 +33,7 @@ export default function Plan({ tripId, trip, uid, setTab }) {
   const [marking, setMarking] = useState({})
   const [ai, setAi] = useState({}) // date -> { mode, busy, err, data }
   const [planner, setPlanner] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
   const [showToBook, setShowToBook] = useState(false)
 
   const visited = Object.fromEntries(places.filter((p) => p.planId).map((p) => [p.planId, p]))
@@ -102,7 +104,9 @@ export default function Plan({ tripId, trip, uid, setTab }) {
   const addStop = (s, date) => add(tripId, 'plan', {
     title: s.title, place: s.place || '', kind: KINDS.some(([k]) => k === s.kind) ? s.kind : 'place',
     time: /^\d{2}:\d{2}$/.test(s.time || '') ? s.time : '', duration: s.duration || '', notes: s.why || s.notes || '',
-    cost: Number(s.cost) || 0, booking: s.needsBooking ? 'todo' : 'none', date,
+    cost: Number(s.cost) || 0, date,
+    booking: ['todo', 'booked'].includes(s.booking) ? s.booking : s.needsBooking ? 'todo' : 'none',
+    bookingRef: s.booking === 'booked' ? (s.bookingRef || '') : '',
   })
 
   return (
@@ -116,7 +120,8 @@ export default function Plan({ tripId, trip, uid, setTab }) {
           {setTab && items.length > 0 && <button className="btn-ghost text-xs py-1.5" onClick={() => setTab('map')}>🗺️ Map</button>}
         </div>
         <div className="flex gap-2">
-          {aiAvailable() && <button onClick={() => setPlanner(!planner)} className="flex-1 text-xs font-semibold rounded-xl border border-violet-200 bg-violet-50 text-violet-800 py-2">{planner ? 'Close planner' : '✨ Plan the whole trip'}</button>}
+          {aiAvailable() && <button onClick={() => { setChatOpen(!chatOpen); setPlanner(false) }} className="flex-1 text-xs font-semibold rounded-xl border border-violet-200 bg-violet-50 text-violet-800 py-2">{chatOpen ? 'Close chat' : '💬 Chat'}</button>}
+          {aiAvailable() && <button onClick={() => { setPlanner(!planner); setChatOpen(false) }} className="flex-1 text-xs font-semibold rounded-xl border border-violet-200 bg-violet-50 text-violet-800 py-2">{planner ? 'Close planner' : '✨ Plan whole trip'}</button>}
           {toBook.length > 0 && <button onClick={() => setShowToBook(!showToBook)} className="flex-1 text-xs font-semibold rounded-xl border border-amber-300 bg-amber-50 text-amber-800 py-2">🎟️ {toBook.length} still to book</button>}
         </div>
         <Destinations tripId={tripId} trip={trip} uid={uid} days={days} onSchedule={addStop} planIds={new Set(items.map((i) => i.id))} />
@@ -132,6 +137,14 @@ export default function Plan({ tripId, trip, uid, setTab }) {
               )
             })}
           </ul>
+        )}
+        {chatOpen && (
+          <PlanChat trip={trip} days={days} items={items}
+            onAdd={addStop}
+            onUpdate={(id, patch) => update(tripId, 'plan', id, patch)}
+            onRemove={(id) => remove(tripId, 'plan', id)}
+            onAddDestinations={(list) => updateTrip(tripId, { destinations: [...(trip.destinations || []), ...list] })}
+            onClose={() => setChatOpen(false)} />
         )}
         {planner && <TripPlanner trip={trip} days={days} items={items} onAdd={addStop} onDone={() => setPlanner(false)} />}
       </section>
