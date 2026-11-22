@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { refreshPush } from '../push'
 import { useDoc, useCol, joinTrip, recordUserTrip, getLocalTrips } from '../data'
 import { getTheme } from '../themes'
@@ -13,6 +13,8 @@ import Photos from './Photos'
 import MapScreen from './Map'
 import More from './More'
 import BottomNav from '../components/BottomNav'
+import { VALID_TABS, getActiveTab, saveActiveTab } from '../tabRouter'
+export { VALID_TABS, getActiveTab, saveActiveTab } from '../tabRouter'
 
 const TABS = [
   ['today', '🏠', 'Today'],
@@ -26,7 +28,41 @@ const TABS = [
 export default function Trip({ tripId, uid, onUserChange }) {
   const trip = useDoc(tripId)
   const members = useCol(tripId, 'members', 'joinedAt')
-  const [tab, setTab] = useState('today')
+  const [tab, setTabState] = useState(() => getActiveTab(tripId))
+
+  const setTab = useCallback((newTab) => {
+    if (!VALID_TABS.includes(newTab)) return
+    setTabState(newTab)
+    saveActiveTab(tripId, newTab)
+    const targetHash = `#/t/${tripId}/${newTab}`
+    if (location.hash !== targetHash) {
+      history.replaceState(null, '', targetHash)
+    }
+  }, [tripId])
+
+  // Sync state if hash changes externally (e.g. browser Back/Forward)
+  useEffect(() => {
+    const onHashChange = () => {
+      const active = getActiveTab(tripId)
+      setTabState((prev) => (prev !== active ? active : prev))
+    }
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [tripId])
+
+  // Reset tab if tripId changes
+  useEffect(() => {
+    setTabState(getActiveTab(tripId))
+  }, [tripId])
+
+  // Ensure current tab is stored in sessionStorage and reflected in URL hash
+  useEffect(() => {
+    saveActiveTab(tripId, tab)
+    const expectedHash = `#/t/${tripId}/${tab}`
+    if (location.hash.startsWith(`#/t/${tripId}`) && location.hash !== expectedHash) {
+      history.replaceState(null, '', expectedHash)
+    }
+  }, [tripId, tab])
 
   useEffect(() => {
     if (trip && trip.id) {
