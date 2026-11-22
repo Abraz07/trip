@@ -1,0 +1,9 @@
+@import "tailwindcss";
+html, body { background: #f8fafc; -webkit-tap-highlight-color: transparent; }
+body { padding-bottom: env(safe-area-inset-bottom); }
+.card { @apply bg-white rounded-2xl border border-slate-200 p-4; }
+.btn { @apply rounded-xl bg-teal-700 text-white font-semibold px-4 py-2.5 active:scale-[.98] disabled:opacity-50; }
+.btn-ghost { @apply rounded-xl border border-slate-300 bg-white font-medium px-4 py-2.5 active:scale-[.98]; }
+.input { @apply w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 outline-none focus:border-teal-600; }
+/* reCAPTCHA v3 badge: hidden; attribution is shown in the scan screen instead (allowed by Google's terms). */
+.grecaptcha-badge { visibility: hidden; }
