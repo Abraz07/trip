@@ -23,10 +23,15 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom'],
-          firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/messaging', 'firebase/storage'],
-          leaflet: ['leaflet'],
+        // Firestore, Auth and the Firebase core load up front as separate files; messaging, storage,
+        // AI and app-check are dynamic imports and get their own on-demand chunks.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+          if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) return 'vendor'
+          if (id.includes('/leaflet/')) return 'leaflet'
+          if (id.includes('@firebase/firestore')) return 'firebase-firestore'
+          if (id.includes('@firebase/auth')) return 'firebase-auth'
+          if (/@firebase\/(app|component|util|logger)\//.test(id) || /node_modules\/(idb|tslib)\//.test(id)) return 'firebase-core'
         },
       },
     },

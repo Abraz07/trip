@@ -8,9 +8,7 @@ import {
   signInWithPopup,
   signOut,
 } from 'firebase/auth'
-import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check'
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore'
-import { getStorage } from 'firebase/storage'
 
 const config = {
   apiKey: import.meta.env.VITE_FB_API_KEY,
@@ -29,7 +27,8 @@ export const app = configured ? initializeApp(config) : null
 const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY
 if (configured && siteKey) {
   if (import.meta.env.DEV) self.FIREBASE_APPCHECK_DEBUG_TOKEN = import.meta.env.VITE_APPCHECK_DEBUG_TOKEN || true
-  initializeAppCheck(app, { provider: new ReCaptchaV3Provider(siteKey), isTokenAutoRefreshEnabled: true })
+  import('firebase/app-check').then(({ initializeAppCheck, ReCaptchaV3Provider }) =>
+    initializeAppCheck(app, { provider: new ReCaptchaV3Provider(siteKey), isTokenAutoRefreshEnabled: true }))
 }
 
 export const auth = configured ? getAuth(app) : null
@@ -37,7 +36,17 @@ export const auth = configured ? getAuth(app) : null
 export const db = configured
   ? initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) })
   : null
-export const storage = configured && config.storageBucket ? getStorage(app) : null
+// Cloud Storage needs the Blaze plan, so it's off unless VITE_USE_STORAGE=1, and loaded only when used.
+export const storageEnabled = configured && Boolean(config.storageBucket) && import.meta.env.VITE_USE_STORAGE === '1'
+let storageMod = null
+export async function loadStorage() {
+  if (!storageEnabled) return null
+  if (!storageMod) {
+    const m = await import('firebase/storage')
+    storageMod = { ...m, storage: m.getStorage(app) }
+  }
+  return storageMod
+}
 
 export function ensureUser() {
   return new Promise((resolve, reject) => {

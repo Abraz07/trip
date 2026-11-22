@@ -1,10 +1,10 @@
-import { getAI, getGenerativeModel, GoogleAIBackend, Schema } from 'firebase/ai'
 import { app } from './firebase'
 import { getGeminiApiKey, scanReceiptWithGemini } from './gemini'
 
 export const scanAvailable = true
 
-const schema = Schema.object({
+// Firebase AI Logic is only a fallback when no Gemini key is set, so it's loaded on demand.
+const buildSchema = (Schema) => Schema.object({
   properties: {
     merchant: Schema.string({ description: 'Restaurant or shop name, empty if unreadable' }),
     items: Schema.array({
@@ -22,11 +22,15 @@ const schema = Schema.object({
 })
 
 let model
-const getModel = () =>
-  (model ||= getGenerativeModel(getAI(app, { backend: new GoogleAIBackend() }), {
-    model: 'gemini-2.5-flash',
-    generationConfig: { responseMimeType: 'application/json', responseSchema: schema, temperature: 0 },
-  }))
+const getModel = async () => {
+  if (model) return model
+  const { getAI, getGenerativeModel, GoogleAIBackend, Schema } = await import('firebase/ai')
+  model = getGenerativeModel(getAI(app, { backend: new GoogleAIBackend() }), {
+    model: import.meta.env.VITE_GEMINI_MODEL || 'gemini-3.5-flash',
+    generationConfig: { responseMimeType: 'application/json', responseSchema: buildSchema(Schema), temperature: 0 },
+  })
+  return model
+}
 
 const PROMPT = `This is a photo of a restaurant/shop bill, most likely from India (₹).
 Extract every purchased line item with its line total. Do not list tax, GST, service charge, round-off or discount as items — put their net sum in "extras".
@@ -40,7 +44,7 @@ export async function readBill(dataUrl, apiKeyOverride) {
   if (!directKey) {
     try {
       const base64 = dataUrl.split(',')[1]
-      const res = await getModel().generateContent([PROMPT, { inlineData: { mimeType: 'image/jpeg', data: base64 } }])
+      const res = await (await getModel()).generateContent([PROMPT, { inlineData: { mimeType: 'image/jpeg', data: base64 } }])
       const out = JSON.parse(res.response.text())
       const items = (out.items || []).filter((i) => i.name && Number(i.price) > 0).map((i) => ({
         name: i.name,

@@ -1,4 +1,5 @@
-import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messaging'
+// firebase/messaging is loaded only when push is actually used (it's off by default).
+const fm = () => import('firebase/messaging')
 import { arrayUnion } from 'firebase/firestore'
 import { app } from './firebase'
 import { updateMember } from './data'
@@ -14,6 +15,7 @@ export const isStandalone = matchMedia('(display-mode: standalone)').matches || 
 export async function pushState() {
   if (!VAPID || PUSH_DISABLED) return 'unsupported'
   if (isIOS && !isStandalone) return 'needs-install'
+  const { isSupported } = await fm()
   if (!(await isSupported().catch(() => false)) || !('Notification' in window)) return 'unsupported'
   return Notification.permission
 }
@@ -35,6 +37,7 @@ async function swRegistration() {
 export async function enablePush(tripId, uid) {
   const perm = await Notification.requestPermission()
   if (perm !== 'granted') return perm
+  const { getMessaging, getToken } = await fm()
   const messaging = getMessaging(app)
   const reg = await swRegistration()
   const token = await getToken(messaging, { vapidKey: VAPID, serviceWorkerRegistration: reg })
@@ -48,6 +51,7 @@ export async function enablePush(tripId, uid) {
 export async function refreshPush(tripId, uid, onForeground) {
   if ((await pushState()) !== 'granted') return
   try {
+    const { getMessaging, getToken, onMessage } = await fm()
     const messaging = getMessaging(app)
     const reg = await swRegistration()
     const token = await getToken(messaging, { vapidKey: VAPID, serviceWorkerRegistration: reg })

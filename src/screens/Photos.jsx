@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage'
 import JSZip from 'jszip'
 import { useCol, newDocId, put, remove, getOnce, update, updateTrip } from '../data'
 import { arrayUnion, arrayRemove } from 'firebase/firestore'
 import { faceCodeFromSelfie, matchPeople } from '../faces'
-import { storage } from '../firebase'
+import { loadStorage } from '../firebase'
 import { ymd } from './Trip'
 import ConfirmDialog from '../components/ConfirmDialog'
 
@@ -99,7 +98,9 @@ export default function Photos({ tripId, trip, uid, byId, members = [] }) {
         let storagePath = null
 
         // 1. Try Firebase Cloud Storage first
-        if (storage) {
+        const st = await loadStorage()
+        if (st) {
+          const { storage, ref, uploadBytesResumable, getDownloadURL } = st
           try {
             const fullBlob = await dataUrlToBlob(await compress(file, 2000, 0.88))
             storagePath = `trips/${tripId}/photos/${id}.jpg`
@@ -299,8 +300,8 @@ function Viewer({ photo, tripId, uid, byId, onClose }) {
 
   async function handleDelete() {
     const promises = [remove(tripId, 'photos', photo.id), remove(tripId, 'photoFull', photo.id)]
-    if (photo.storagePath && storage) {
-      promises.push(deleteObject(ref(storage, photo.storagePath)).catch(() => {}))
+    if (photo.storagePath) {
+      promises.push(loadStorage().then((st) => st && st.deleteObject(st.ref(st.storage, photo.storagePath))).catch(() => {}))
     }
     await Promise.all(promises)
     setConfirmDelete(false)
