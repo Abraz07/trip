@@ -5,7 +5,11 @@ import {
   onAuthStateChanged,
   GoogleAuthProvider,
   linkWithPopup,
+  linkWithRedirect,
   signInWithPopup,
+  signInWithRedirect,
+  signInWithCredential,
+  getRedirectResult,
   signOut,
 } from 'firebase/auth'
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore'
@@ -48,7 +52,14 @@ export async function loadStorage() {
   return storageMod
 }
 
-export function ensureUser() {
+export async function ensureUser() {
+  // Finish a Google sign-in that fell back to a full-page redirect (popup blocked).
+  try {
+    await getRedirectResult(auth)
+  } catch (e) {
+    const cred = GoogleAuthProvider.credentialFromError(e)
+    if (e.code === 'auth/credential-already-in-use' && cred) await signInWithCredential(auth, cred).catch(() => {})
+  }
   return new Promise((resolve, reject) => {
     const off = onAuthStateChanged(auth, (u) => {
       if (u) {
@@ -61,26 +72,46 @@ export function ensureUser() {
   })
 }
 
-// 1-Tap Google Link & Sync
+// Continue with Google. A guest is *linked* (same user id, so their trips and balances carry over).
+// If that Google account already has a Yatra profile, we switch to it using the same credential
+// (no second popup). If the browser blocks the popup, fall back to a full-page redirect.
 export async function linkAccountWithGoogle() {
   if (!auth) throw new Error('Firebase Auth not initialized')
   const provider = new GoogleAuthProvider()
+  provider.setCustomParameters({ prompt: 'select_account' })
   const currentUser = auth.currentUser
-
-  if (currentUser && currentUser.isAnonymous) {
-    try {
-      const res = await linkWithPopup(currentUser, provider)
-      return res.user
-    } catch (e) {
-      if (e.code === 'auth/credential-already-in-use') {
-        const res = await signInWithPopup(auth, provider)
-        return res.user
-      }
-      throw e
+  try {
+    if (currentUser?.isAnonymous) return (await linkWithPopup(currentUser, provider)).user
+    return (await signInWithPopup(auth, provider)).user
+  } catch (e) {
+    if (e.code === 'auth/credential-already-in-use') {
+      const cred = GoogleAuthProvider.credentialFromError(e)
+      if (cred) return (await signInWithCredential(auth, cred)).user
     }
-  } else {
-    const res = await signInWithPopup(auth, provider)
-    return res.user
+    if (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment') {
+      if (currentUser?.isAnonymous) await linkWithRedirect(currentUser, provider)
+      else await signInWithRedirect(auth, provider)
+      return null // page navigates away; ensureUser() finishes on return
+    }
+    throw e
+  }
+}
+
+// Human-readable message for sign-in errors (null = user cancelled, show nothing).
+export function authErrorMessage(e) {
+  switch (e?.code) {
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+    case 'auth/user-cancelled':
+      return null
+    case 'auth/network-request-failed':
+      return 'No internet connection — try again when you’re back online.'
+    case 'auth/unauthorized-domain':
+      return 'Sign-in isn’t enabled for this web address yet.'
+    case 'auth/too-many-requests':
+      return 'Too many attempts — wait a minute and try again.'
+    default:
+      return 'Couldn’t sign in with Google. Please try again.'
   }
 }
 

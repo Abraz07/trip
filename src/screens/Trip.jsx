@@ -4,6 +4,7 @@ import { useDoc, useCol, joinTrip, recordUserTrip, getLocalTrips } from '../data
 import { getTheme } from '../themes'
 import ThemePickerModal from '../components/ThemePickerModal'
 import { Center } from '../App'
+import { GoogleButton, GuestForm, OrDivider, PrivacyNote, useGoogleSignIn, getSavedName } from '../components/Auth'
 import Today from './Today'
 import Plan from './Plan'
 import Money from './Money'
@@ -20,7 +21,7 @@ const TABS = [
   ['more', '☰', 'More'],
 ]
 
-export default function Trip({ tripId, uid }) {
+export default function Trip({ tripId, uid, onUserChange }) {
   const trip = useDoc(tripId)
   const members = useCol(tripId, 'members', 'joinedAt')
   const [tab, setTab] = useState('today')
@@ -49,7 +50,7 @@ export default function Trip({ tripId, uid }) {
   )
 
   const me = members.find((m) => m.id === uid)
-  if (!me) return <Join trip={trip} uid={uid} />
+  if (!me) return <Join trip={trip} uid={uid} members={members} onUserChange={onUserChange} />
   return <TripInner {...{ tripId, trip, uid, me, members, tab, setTab }} />
 }
 
@@ -265,43 +266,63 @@ function TripInner({ tripId, trip, uid, me, members, tab, setTab }) {
   )
 }
 
-function Join({ trip, uid }) {
-  const [name, setName] = useState(() => { try { return localStorage.getItem('yatra:name') || '' } catch { return '' } })
+function Join({ trip, uid, members, onUserChange }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const theme = getTheme(trip.theme)
+  const organiser = members.find((m) => m.id === trip.createdBy)?.name
 
-  async function go(e) {
-    e.preventDefault()
-    const n = name.trim()
-    if (!n) return
+  async function join(n, asUid = uid) {
     setBusy(true); setErr('')
-    try { localStorage.setItem('yatra:name', n) } catch {}
     try {
       // Offline, Firestore queues the write and never settles — so don't wait forever.
       await Promise.race([
-        joinTrip(trip.id, uid, n),
+        joinTrip(trip.id, asUid, n),
         new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 15000)),
       ])
     } catch (e2) {
       setErr(!navigator.onLine || e2.message === 'timeout'
-        ? "Couldn't reach the server — check your internet and tap Join again."
+        ? "Couldn't reach the server — check your internet and try again."
         : `Couldn't join: ${e2.message}`)
       setBusy(false)
     }
   }
 
+  // Google from an invite: sign in, then join with their name in one step.
+  const google = useGoogleSignIn(async (u) => {
+    onUserChange?.(u)
+    await join(getSavedName() || u.displayName?.split(' ')[0] || 'Friend', u.uid)
+  })
+
   return (
-    <Center>
-      <div className="text-5xl">🎒</div>
-      <p className="text-slate-500 mt-4">You're invited to</p>
-      <h1 className="text-2xl font-bold">{trip.name}</h1>
-      <p className="text-slate-500 text-sm">{fmtRange(trip.start, trip.end)}</p>
-      <form onSubmit={go} className="mt-6 flex gap-2 w-80 max-w-full mx-auto">
-        <input required autoFocus className="input" placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} />
-        <button disabled={busy || !name.trim()} className="btn">{busy ? 'Joining…' : 'Join'}</button>
-      </form>
-      {err && <p role="alert" className="mt-3 text-sm text-red-600 max-w-80 mx-auto">{err}</p>}
-    </Center>
+    <div className="min-h-dvh bg-slate-50 grid place-items-center px-5 py-10">
+      <div className="w-full max-w-sm space-y-5">
+        <div className="rounded-3xl overflow-hidden shadow-xl ring-1 ring-slate-200 bg-white">
+          <div className={`bg-gradient-to-br ${theme?.gradient || 'from-teal-800 to-teal-600'} px-6 pt-6 pb-5 text-white`}>
+            <p className="text-xs uppercase tracking-wider text-teal-100">You're invited 🎒</p>
+            <h1 className="mt-1 text-2xl font-bold leading-tight">{theme?.icon ? `${theme.icon} ` : ''}{trip.name}</h1>
+            <p className="mt-1 text-sm text-teal-100">{fmtRange(trip.start, trip.end)}</p>
+            <div className="mt-4 flex items-center gap-2">
+              <div className="flex -space-x-2">
+                {members.slice(0, 5).map((m) => (
+                  <span key={m.id} className="size-7 rounded-full bg-white text-teal-800 ring-2 ring-teal-700 grid place-items-center text-xs font-bold">{(m.name || '?')[0].toUpperCase()}</span>
+                ))}
+              </div>
+              <p className="text-xs text-teal-50">
+                {members.length === 0 ? 'Be the first to join' : `${organiser ? `${organiser}${members.length > 1 ? ` + ${members.length - 1} more` : ''}` : `${members.length} people`} ${members.length === 1 ? 'is' : 'are'} going`}
+              </p>
+            </div>
+          </div>
+          <div className="p-6 space-y-4">
+            <GoogleButton onClick={google.signIn} busy={google.busy || busy} label="Join with Google" />
+            {(google.error || err) && <p role="alert" className="text-sm text-red-600">{google.error || err}</p>}
+            <OrDivider />
+            <GuestForm onSubmit={(n) => join(n)} cta="Join as guest" busy={busy} />
+          </div>
+        </div>
+        <PrivacyNote />
+      </div>
+    </div>
   )
 }
 
