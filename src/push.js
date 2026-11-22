@@ -8,8 +8,8 @@ const VAPID = import.meta.env.VITE_FB_VAPID_KEY
 // Off until a sender (Cloud Functions or similar) is deployed; set VITE_PUSH_ENABLED=1 then.
 const PUSH_DISABLED = import.meta.env.VITE_PUSH_ENABLED !== '1'
 
-export const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
-export const isStandalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true
+export const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent)
+export const isStandalone = typeof matchMedia !== 'undefined' ? (matchMedia('(display-mode: standalone)').matches || (typeof navigator !== 'undefined' && navigator.standalone === true)) : false
 
 // 'unsupported' | 'needs-install' | 'default' | 'granted' | 'denied'
 export async function pushState() {

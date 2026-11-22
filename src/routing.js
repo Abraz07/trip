@@ -38,6 +38,37 @@ export function driveTime(a, b) {
   return inflight.get(k)
 }
 
+// Fetch full turn-by-turn road geometry (array of [lat, lng]) for a sequence of stops
+export async function fetchFullRoadRoute(points) {
+  if (!Array.isArray(points) || points.length < 2) return null
+  const coordsStr = points.map((p) => `${p.lng.toFixed(5)},${p.lat.toFixed(5)}`).join(';')
+  const cacheKey = `yatra:roadgeom:${coordsStr}`
+  try {
+    const cached = sessionStorage.getItem(cacheKey)
+    if (cached) return JSON.parse(cached)
+  } catch {}
+
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`
+    const res = await throttle(() => fetch(url))
+    if (!res.ok) return null
+    const data = await res.json()
+    const route = data.routes?.[0]
+    if (!route?.geometry?.coordinates) return null
+    // OSRM returns [lng, lat], Leaflet polyline expects [lat, lng]
+    const latLngs = route.geometry.coordinates.map(([lng, lat]) => [lat, lng])
+    const result = {
+      latLngs,
+      distanceKm: Math.round(route.distance / 100) / 10,
+      durationMin: Math.round(route.duration / 60),
+    }
+    try { sessionStorage.setItem(cacheKey, JSON.stringify(result)) } catch {}
+    return result
+  } catch {
+    return null
+  }
+}
+
 // "2h", "1.5h", "90m", "1h 30m", "45 min" → minutes (0 if unreadable).
 export function parseDuration(s) {
   if (!s) return 0
