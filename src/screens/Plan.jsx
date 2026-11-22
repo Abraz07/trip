@@ -9,6 +9,7 @@ import { inr } from '../settle'
 import { driveTime, parseDuration, toMin, fmtMin } from '../routing'
 import Destinations from './Destinations'
 import PlanChat from './PlanChat'
+import { WhatsAppButton } from '../share'
 
 export const KINDS = [
   ['place', '📍', 'Sightseeing'],
@@ -107,114 +108,192 @@ export default function Plan({ tripId, trip, uid, setTab }) {
     cost: Number(s.cost) || 0, date,
     booking: ['todo', 'booked'].includes(s.booking) ? s.booking : s.needsBooking ? 'todo' : 'none',
     bookingRef: s.booking === 'booked' ? (s.bookingRef || '') : '',
+    ...(typeof s.lat === 'number' && typeof s.lng === 'number' && Math.abs(s.lat) <= 90 && Math.abs(s.lng) <= 180 ? { lat: s.lat, lng: s.lng } : {}),
   })
+
+  const [collapsed, setCollapsed] = useState(() => new Set())
+  const [titleEdit, setTitleEdit] = useState(null)
+  const [shareOpen, setShareOpen] = useState(false)
+  const today = ymd(new Date())
+  const plannedDays = days.filter((d) => items.some((i) => i.date === d.date)).length
+  const route = (trip.destinations || []).length ? trip.destinations : []
+  const toggleDay = (date) => setCollapsed((c) => { const n = new Set(c); n.has(date) ? n.delete(date) : n.add(date); return n })
+  const jump = (date) => {
+    setCollapsed((c) => { const n = new Set(c); n.delete(date); return n })
+    setTimeout(() => document.getElementById(`day-${date}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 30)
+  }
+  const saveTitle = (date, title) => updateTrip(tripId, { [`dayTitles.${date}`]: title.trim() || null })
 
   return (
     <>
-      <section className="card space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <p className="font-semibold">{items.length} stops over {days.length} days</p>
-            <p className="text-xs text-slate-500">{totalCost ? `≈ ${inr(totalCost)} per person in planned costs` : 'Add stops, activities, food and stays to each day'}</p>
+      {/* Itinerary overview */}
+      <section className="rounded-3xl overflow-hidden shadow-sm ring-1 ring-slate-200 bg-white">
+        <div className="bg-gradient-to-br from-slate-900 via-teal-900 to-teal-700 text-white p-4 space-y-3">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[11px] uppercase tracking-widest text-teal-200">Itinerary</p>
+              {route.length > 0
+                ? <p className="mt-1 font-semibold leading-snug">{route.join('  →  ')}</p>
+                : <p className="mt-1 font-semibold">{days.length}-day trip</p>}
+            </div>
+            <button onClick={() => setShareOpen(!shareOpen)} className="shrink-0 rounded-full bg-white/15 hover:bg-white/25 px-3 py-1.5 text-xs font-semibold">📤 Share</button>
           </div>
-          {setTab && items.length > 0 && <button className="btn-ghost text-xs py-1.5" onClick={() => setTab('map')}>🗺️ Map</button>}
+          <div className="grid grid-cols-4 gap-2 text-center">
+            {[[`${plannedDays}/${days.length}`, 'days planned'], [items.length, 'stops'], [totalCost ? inr(totalCost) : '—', 'per person'], [toBook.length, 'to book']].map(([v, l]) => (
+              <div key={l} className="rounded-xl bg-white/10 py-2"><p className="font-bold text-sm">{v}</p><p className="text-[10px] text-teal-100">{l}</p></div>
+            ))}
+          </div>
+          <div className="h-1.5 rounded-full bg-white/15 overflow-hidden" role="progressbar" aria-valuenow={plannedDays} aria-valuemax={days.length} aria-label="Days planned">
+            <div className="h-full bg-amber-300 rounded-full transition-all" style={{ width: `${days.length ? (plannedDays / days.length) * 100 : 0}%` }} />
+          </div>
         </div>
-        <div className="flex gap-2">
-          {aiAvailable() && <button onClick={() => { setChatOpen(!chatOpen); setPlanner(false) }} className="flex-1 text-xs font-semibold rounded-xl border border-violet-200 bg-violet-50 text-violet-800 py-2">{chatOpen ? 'Close chat' : '💬 Chat'}</button>}
-          {aiAvailable() && <button onClick={() => { setPlanner(!planner); setChatOpen(false) }} className="flex-1 text-xs font-semibold rounded-xl border border-violet-200 bg-violet-50 text-violet-800 py-2">{planner ? 'Close planner' : '✨ Plan whole trip'}</button>}
-          {toBook.length > 0 && <button onClick={() => setShowToBook(!showToBook)} className="flex-1 text-xs font-semibold rounded-xl border border-amber-300 bg-amber-50 text-amber-800 py-2">🎟️ {toBook.length} still to book</button>}
+        <div className="p-3 space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            {aiAvailable() && <button onClick={() => { setChatOpen(!chatOpen); setPlanner(false) }} className={`text-xs font-semibold rounded-xl py-2.5 border ${chatOpen ? 'bg-violet-700 text-white border-violet-700' : 'border-violet-200 bg-violet-50 text-violet-800'}`}>💬 Chat to plan</button>}
+            {aiAvailable() && <button onClick={() => { setPlanner(!planner); setChatOpen(false) }} className={`text-xs font-semibold rounded-xl py-2.5 border ${planner ? 'bg-violet-700 text-white border-violet-700' : 'border-violet-200 bg-violet-50 text-violet-800'}`}>✨ Plan whole trip</button>}
+            {toBook.length > 0 && <button onClick={() => setShowToBook(!showToBook)} className="text-xs font-semibold rounded-xl border border-amber-300 bg-amber-50 text-amber-800 py-2.5">🎟️ {toBook.length} still to book</button>}
+            {setTab && items.length > 0 && <button className="text-xs font-semibold rounded-xl border border-slate-200 bg-white py-2.5" onClick={() => setTab('map')}>🗺️ See on map</button>}
+          </div>
+          {shareOpen && <ShareItinerary trip={trip} days={days} items={items} onClose={() => setShareOpen(false)} />}
+          {showToBook && toBook.length > 0 && (
+            <ul className="text-sm divide-y divide-slate-100 border border-amber-200 rounded-xl px-3">
+              {toBook.map((i) => {
+                const d = days.find((x) => x.date === i.date)
+                return (
+                  <li key={i.id} className="py-2 flex items-center gap-2">
+                    <span className="flex-1 min-w-0"><span className="font-medium">{i.title}</span><span className="block text-xs text-slate-500">{d ? dayLabel(d) : i.date}{i.time ? ` · ${i.time}` : ''}</span></span>
+                    <button className="text-xs rounded-full border border-teal-700 text-teal-700 px-2 py-0.5 shrink-0" onClick={() => { jump(i.date); setEditing(i) }}>Mark booked</button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          {chatOpen && (
+            <PlanChat trip={trip} days={days} items={items}
+              onAdd={addStop}
+              onUpdate={(id, patch) => update(tripId, 'plan', id, patch)}
+              onRemove={(id) => remove(tripId, 'plan', id)}
+              onAddDestinations={(list) => updateTrip(tripId, { destinations: [...(trip.destinations || []), ...list] })}
+              onClose={() => setChatOpen(false)} />
+          )}
+          {planner && <TripPlanner trip={trip} days={days} items={items} onAdd={addStop} onDone={() => setPlanner(false)} />}
+          <Destinations tripId={tripId} trip={trip} uid={uid} days={days} onSchedule={addStop} planIds={new Set(items.map((i) => i.id))} />
         </div>
-        <Destinations tripId={tripId} trip={trip} uid={uid} days={days} onSchedule={addStop} planIds={new Set(items.map((i) => i.id))} />
-        {showToBook && toBook.length > 0 && (
-          <ul className="text-sm divide-y divide-slate-100 border border-amber-200 rounded-xl px-3">
-            {toBook.map((i) => {
-              const d = days.find((x) => x.date === i.date)
-              return (
-                <li key={i.id} className="py-2 flex items-center gap-2">
-                  <span className="flex-1 min-w-0"><span className="font-medium">{i.title}</span><span className="block text-xs text-slate-500">{d ? dayLabel(d) : i.date}{i.time ? ` · ${i.time}` : ''}</span></span>
-                  <button className="text-xs rounded-full border border-teal-700 text-teal-700 px-2 py-0.5 shrink-0" onClick={() => setEditing(i)}>Mark booked</button>
-                </li>
-              )
-            })}
-          </ul>
-        )}
-        {chatOpen && (
-          <PlanChat trip={trip} days={days} items={items}
-            onAdd={addStop}
-            onUpdate={(id, patch) => update(tripId, 'plan', id, patch)}
-            onRemove={(id) => remove(tripId, 'plan', id)}
-            onAddDestinations={(list) => updateTrip(tripId, { destinations: [...(trip.destinations || []), ...list] })}
-            onClose={() => setChatOpen(false)} />
-        )}
-        {planner && <TripPlanner trip={trip} days={days} items={items} onAdd={addStop} onDone={() => setPlanner(false)} />}
       </section>
+
+      {/* Day navigator */}
+      <nav aria-label="Jump to day" className="sticky top-[56px] z-10 -mx-4 px-4 py-2 bg-slate-50/90 backdrop-blur border-b border-slate-200/60">
+        <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+          {days.map((d) => {
+            const n = items.filter((i) => i.date === d.date).length
+            const isToday = d.date === today
+            return (
+              <button key={d.date} onClick={() => jump(d.date)}
+                className={`shrink-0 rounded-xl px-2.5 py-1.5 text-center border transition ${isToday ? 'bg-amber-400 border-amber-400 text-slate-900' : 'bg-white border-slate-200 hover:border-teal-600'}`}>
+                <p className="text-[10px] font-semibold uppercase tracking-wide opacity-70">{new Date(d.date + 'T00:00').toLocaleDateString('en-IN', { weekday: 'short' })}</p>
+                <p className="text-sm font-bold leading-tight">Day {d.n}</p>
+                <p className={`text-[10px] ${n ? 'text-teal-700' : 'text-slate-400'} ${isToday ? '!text-slate-800' : ''}`}>{n ? `${n} stop${n > 1 ? 's' : ''}` : 'free'}</p>
+              </button>
+            )
+          })}
+        </div>
+      </nav>
 
       {days.map((d) => {
         const list = items.filter((i) => i.date === d.date).sort(byTime)
         const dayCost = list.reduce((s, i) => s + (Number(i.cost) || 0), 0)
         const a = ai[d.date]
+        const isCollapsed = collapsed.has(d.date)
+        const title = trip.dayTitles?.[d.date]
+        const isToday = d.date === today
         return (
-          <section key={d.date} className="card">
-            <div className="flex justify-between items-start gap-2">
-              <div>
-                <h2 className="font-semibold">Day {d.n} <span className="text-slate-500 font-normal text-sm">· {new Date(d.date + 'T00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}</span></h2>
-                {list.length > 0 && <p className="text-xs text-slate-500">{list.length} stop{list.length > 1 ? 's' : ''}{dayCost ? ` · ≈ ${inr(dayCost)}/person` : ''}</p>}
+          <section key={d.date} id={`day-${d.date}`} className={`scroll-mt-32 rounded-3xl bg-white ring-1 shadow-sm overflow-hidden ${isToday ? 'ring-amber-400' : 'ring-slate-200'}`}>
+            <header className="flex items-start gap-3 p-4 pb-3">
+              <div className="size-12 shrink-0 rounded-2xl bg-gradient-to-br from-teal-700 to-teal-900 text-white grid place-items-center leading-none shadow">
+                <span className="text-[9px] uppercase tracking-wider opacity-80">Day</span><span className="text-lg font-bold -mt-1">{d.n}</span>
               </div>
-              <button className="text-teal-700 text-sm font-semibold shrink-0" onClick={() => setEditing({ date: d.date })}>+ Add stop</button>
-            </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-slate-500">{new Date(d.date + 'T00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}{isToday && <span className="ml-1.5 rounded bg-amber-100 text-amber-800 px-1.5 py-0.5 text-[10px] font-bold">TODAY</span>}</p>
+                {titleEdit === d.date ? (
+                  <form className="flex gap-1 mt-0.5" onSubmit={(e) => { e.preventDefault(); saveTitle(d.date, e.target.t.value); setTitleEdit(null) }}>
+                    <input name="t" autoFocus defaultValue={title || ''} maxLength={50} placeholder="e.g. Jungle day in Dandeli" className="input py-1 text-sm" />
+                    <button className="btn py-1 px-2 text-xs">Save</button>
+                  </form>
+                ) : (
+                  <button className="text-left font-semibold text-slate-900 hover:underline decoration-dotted" onClick={() => setTitleEdit(d.date)}>
+                    {title || <span className="text-slate-400 font-normal">+ Add a title for this day</span>}
+                  </button>
+                )}
+                {list.length > 0 && <DaySummary list={list} cost={dayCost} />}
+              </div>
+              <button aria-label={isCollapsed ? `Expand day ${d.n}` : `Collapse day ${d.n}`} aria-expanded={!isCollapsed} onClick={() => toggleDay(d.date)}
+                className="size-8 shrink-0 grid place-items-center rounded-full hover:bg-slate-100 text-slate-500">{isCollapsed ? '▾' : '▴'}</button>
+            </header>
 
-            {list.length === 0 && editing?.date !== d.date && <p className="text-sm text-slate-400 mt-2">Free day 🌴</p>}
-
-            <ol className="mt-3">
-              {list.map((i, idx) => {
-                const [, icon, label] = kindOf(i.kind)
-                const next = list[idx + 1]
-                if (editing?.id === i.id) {
-                  return <li key={i.id}><StopForm initial={i} days={days} onCancel={() => setEditing(null)} onSave={(v) => { update(tripId, 'plan', i.id, v); setEditing(null) }} /></li>
-                }
-                return (
-                  <li key={i.id}>
-                    <div className="flex gap-3">
-                      <span className="size-10 shrink-0 rounded-full bg-teal-50 border border-teal-200 grid place-items-center text-lg" title={label}>{icon}</span>
-                      <div className="flex-1 min-w-0 pb-1">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="text-xs font-mono text-teal-700">{i.time || 'Anytime'}{i.duration ? ` · ${i.duration}` : ''}</p>
-                            <p className="font-medium text-slate-900">{i.title}</p>
-                          </div>
-                          <div className="flex gap-1 shrink-0">
-                            <button aria-label={`Edit or move ${i.title}`} className="text-slate-400 px-1 hover:text-teal-700" onClick={() => setEditing(i)}>✎</button>
-                            <button aria-label={`Delete ${i.title}`} className="text-slate-400 px-1 hover:text-red-500" onClick={() => setDeletingItem(i)}>✕</button>
-                          </div>
-                        </div>
-                        {i.place && <MapLink place={i.place} />}
-                        {i.notes && <p className="text-xs text-slate-500 whitespace-pre-wrap mt-0.5">{i.notes}</p>}
-                        <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                          {i.booking === 'todo' && <span className="text-[11px] font-semibold bg-amber-100 text-amber-800 rounded-full px-2 py-0.5">🎟️ To book</span>}
-                          {i.booking === 'booked' && <span className="text-[11px] font-semibold bg-teal-100 text-teal-800 rounded-full px-2 py-0.5">✅ Booked{i.bookingRef ? ` · ${i.bookingRef}` : ''}</span>}
-                          {Number(i.cost) > 0 && <span className="text-[11px] bg-slate-100 rounded-full px-2 py-0.5">≈ {inr(i.cost)}/person</span>}
-                          {visited[i.id]
-                            ? <span className="text-[11px] font-semibold text-teal-700">✓ Visited{visited[i.id].rating ? ` · ${'★'.repeat(visited[i.id].rating)}` : ''}</span>
-                            : <button type="button" disabled={marking[i.id] === 'busy'} onClick={() => markVisited(i)} className="text-[11px] border border-slate-300 rounded-full px-2 py-0.5 font-medium text-slate-600 hover:border-teal-600 hover:text-teal-700">{marking[i.id] === 'busy' ? 'Saving…' : '✓ Mark visited'}</button>}
-                          {setTab && i.place && <button type="button" onClick={() => { sessionStorage.setItem('yatra:map_focus', i.id); setTab('map') }} className="text-[11px] text-teal-700 underline">Show on map</button>}
-                        </div>
-                        {marking[i.id] && marking[i.id] !== 'busy' && <p className="text-[11px] text-red-600 mt-0.5">{marking[i.id]}</p>}
-                      </div>
+            {!isCollapsed && (
+              <div className="px-4 pb-4">
+                {list.length === 0 && editing?.date !== d.date && (
+                  <div className="rounded-2xl border-2 border-dashed border-slate-200 p-4 text-center">
+                    <p className="text-sm text-slate-500">Nothing planned yet 🌴</p>
+                    <div className="mt-2 flex justify-center gap-2">
+                      <button className="btn text-xs py-1.5 px-3" onClick={() => setEditing({ date: d.date })}>+ Add stop</button>
+                      {aiAvailable() && <button className="text-xs font-semibold rounded-xl border border-violet-200 bg-violet-50 text-violet-800 px-3" disabled={a?.busy} onClick={() => runAI(d, list, 'stops')}>{a?.busy ? 'Thinking…' : '✨ Ideas'}</button>}
                     </div>
-                    {next ? <Leg from={i} to={next} /> : null}
-                  </li>
-                )
-              })}
-            </ol>
+                  </div>
+                )}
 
-            {editing?.date === d.date && !editing.id && <StopForm initial={{ date: d.date }} days={days} onCancel={() => setEditing(null)} onSave={(v) => { add(tripId, 'plan', v); setEditing(null) }} />}
+                <ol>
+                  {list.map((i, idx) => {
+                    const [, icon, label] = kindOf(i.kind)
+                    const next = list[idx + 1]
+                    if (editing?.id === i.id) {
+                      return <li key={i.id}><StopForm initial={i} days={days} onCancel={() => setEditing(null)} onSave={(v) => { update(tripId, 'plan', i.id, v); setEditing(null) }} /></li>
+                    }
+                    return (
+                      <li key={i.id}>
+                        <div className="flex gap-2.5">
+                          <div className="w-11 shrink-0 pt-2.5 text-right">
+                            <p className="text-xs font-bold text-slate-800 tabular-nums">{i.time || '—'}</p>
+                            {i.duration && <p className="text-[10px] text-slate-400">{i.duration}</p>}
+                          </div>
+                          <span className={`size-9 mt-1 shrink-0 rounded-full grid place-items-center text-base ring-4 ring-white ${KIND_STYLE[i.kind] || KIND_STYLE.place}`} title={label}>{icon}</span>
+                          <div className="flex-1 min-w-0 rounded-2xl bg-slate-50 hover:bg-slate-100/80 transition px-3 py-2.5">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="font-semibold text-slate-900 leading-snug">{i.title}</p>
+                              <div className="flex shrink-0 -mr-1 -mt-0.5">
+                                <button aria-label={`Edit or move ${i.title}`} className="size-7 grid place-items-center rounded-full text-slate-400 hover:text-teal-700 hover:bg-white" onClick={() => setEditing(i)}>✎</button>
+                                <button aria-label={`Delete ${i.title}`} className="size-7 grid place-items-center rounded-full text-slate-400 hover:text-red-500 hover:bg-white" onClick={() => setDeletingItem(i)}>✕</button>
+                              </div>
+                            </div>
+                            {i.place && <MapLink place={i.place} />}
+                            {i.notes && <p className="text-xs text-slate-500 whitespace-pre-wrap mt-0.5">{i.notes}</p>}
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                              {i.booking === 'todo' && <span className="text-[11px] font-semibold bg-amber-100 text-amber-800 rounded-full px-2 py-0.5">🎟️ To book</span>}
+                              {i.booking === 'booked' && <span className="text-[11px] font-semibold bg-teal-100 text-teal-800 rounded-full px-2 py-0.5">✅ Booked{i.bookingRef ? ` · ${i.bookingRef}` : ''}</span>}
+                              {Number(i.cost) > 0 && <span className="text-[11px] bg-white ring-1 ring-slate-200 rounded-full px-2 py-0.5">≈ {inr(i.cost)}/person</span>}
+                              {visited[i.id]
+                                ? <span className="text-[11px] font-semibold text-teal-700">✓ Visited{visited[i.id].rating ? ` · ${'★'.repeat(visited[i.id].rating)}` : ''}</span>
+                                : <button type="button" disabled={marking[i.id] === 'busy'} onClick={() => markVisited(i)} className="text-[11px] bg-white ring-1 ring-slate-200 rounded-full px-2 py-0.5 font-medium text-slate-600 hover:ring-teal-600 hover:text-teal-700">{marking[i.id] === 'busy' ? 'Saving…' : '✓ Mark visited'}</button>}
+                              {setTab && i.place && <button type="button" onClick={() => { sessionStorage.setItem('yatra:map_focus', i.id); setTab('map') }} className="text-[11px] text-teal-700 underline">Map</button>}
+                            </div>
+                            {marking[i.id] && marking[i.id] !== 'busy' && <p className="text-[11px] text-red-600 mt-0.5">{marking[i.id]}</p>}
+                          </div>
+                        </div>
+                        {next ? <div className="pl-[52px]"><Leg from={i} to={next} /></div> : null}
+                      </li>
+                    )
+                  })}
+                </ol>
 
-            {aiAvailable() && (
-              <div className="mt-3 pt-3 border-t border-slate-100">
-                <div className="flex gap-2">
-                  <button disabled={a?.busy} onClick={() => runAI(d, list, 'needs')} className="flex-1 text-xs font-semibold rounded-xl border border-violet-200 bg-violet-50 text-violet-800 py-2">{a?.busy && a.mode === 'needs' ? 'Thinking…' : '✨ What do we need?'}</button>
-                  <button disabled={a?.busy} onClick={() => runAI(d, list, 'stops')} className="flex-1 text-xs font-semibold rounded-xl border border-violet-200 bg-violet-50 text-violet-800 py-2">{a?.busy && a.mode === 'stops' ? 'Thinking…' : '✨ Suggest stops'}</button>
-                </div>
+                {editing?.date === d.date && !editing.id && <StopForm initial={{ date: d.date }} days={days} onCancel={() => setEditing(null)} onSave={(v) => { add(tripId, 'plan', v); setEditing(null) }} />}
+
+                {list.length > 0 && (
+                  <div className="mt-3 flex gap-2">
+                    <button className="flex-1 text-xs font-semibold rounded-xl border border-slate-200 bg-white py-2 hover:border-teal-600" onClick={() => setEditing({ date: d.date })}>+ Add stop</button>
+                    {aiAvailable() && <button disabled={a?.busy} onClick={() => runAI(d, list, 'needs')} className="flex-1 text-xs font-semibold rounded-xl border border-violet-200 bg-violet-50 text-violet-800 py-2">{a?.busy && a.mode === 'needs' ? 'Thinking…' : '✨ What we need'}</button>}
+                    {aiAvailable() && <button disabled={a?.busy} onClick={() => runAI(d, list, 'stops')} className="flex-1 text-xs font-semibold rounded-xl border border-violet-200 bg-violet-50 text-violet-800 py-2">{a?.busy && a.mode === 'stops' ? 'Thinking…' : '✨ More ideas'}</button>}
+                  </div>
+                )}
                 {a?.err && <p className="text-xs text-red-600 mt-2">{a.err}</p>}
                 {a?.data && a.mode === 'needs' && <Needs data={a.data} packed={packed} onAdd={addToPacking} onClose={() => setAi((x) => ({ ...x, [d.date]: null }))} />}
                 {a?.data && a.mode === 'stops' && (
@@ -236,6 +315,61 @@ export default function Plan({ tripId, trip, uid, setTab }) {
         onCancel={() => setDeletingItem(null)}
       />
     </>
+  )
+}
+
+const KIND_STYLE = {
+  place: 'bg-teal-100 text-teal-800',
+  activity: 'bg-orange-100 text-orange-800',
+  food: 'bg-rose-100 text-rose-800',
+  stay: 'bg-indigo-100 text-indigo-800',
+  travel: 'bg-slate-200 text-slate-800',
+}
+
+// "4 stops · 🚗 62 km · 1 h 40 min · ≈ ₹2,100/person" — driving totals come from the cached route lookups.
+function DaySummary({ list, cost }) {
+  const [drive, setDrive] = useState(null)
+  const key = list.map((i) => `${i.lat},${i.lng}`).join('|')
+  useEffect(() => {
+    let live = true
+    const pairs = list.slice(0, -1).map((a, k) => [a, list[k + 1]]).filter(([a, b]) => hasCoords(a) && hasCoords(b))
+    if (!pairs.length) { setDrive(null); return }
+    Promise.all(pairs.map(([a, b]) => driveTime(a, b))).then((rs) => {
+      if (!live) return
+      const ok = rs.filter(Boolean)
+      setDrive(ok.length ? { km: Math.round(ok.reduce((s, r) => s + r.km, 0)), min: ok.reduce((s, r) => s + r.min, 0) } : null)
+    })
+    return () => { live = false }
+  }, [key]) // eslint-disable-line react-hooks/exhaustive-deps
+  const bits = [`${list.length} stop${list.length > 1 ? 's' : ''}`]
+  if (drive?.km) bits.push(`🚗 ${drive.km} km · ${fmtMin(drive.min)}`)
+  if (cost) bits.push(`≈ ${inr(cost)}/person`)
+  return <p className="mt-0.5 text-xs text-slate-500">{bits.join(' · ')}</p>
+}
+
+// Whole itinerary as text: send to the WhatsApp group or copy anywhere.
+function ShareItinerary({ trip, days, items, onClose }) {
+  const [copied, setCopied] = useState(false)
+  const lines = [`🗓️ *${trip.name}* — itinerary`]
+  if (trip.destinations?.length) lines.push(trip.destinations.join(' → '))
+  for (const d of days) {
+    const list = items.filter((i) => i.date === d.date).sort(byTime)
+    const title = trip.dayTitles?.[d.date]
+    lines.push('', `*Day ${d.n} · ${new Date(d.date + 'T00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}*${title ? ` — ${title}` : ''}`)
+    if (!list.length) lines.push('Free day 🌴')
+    for (const i of list) lines.push(`${i.time || '•'} ${kindOf(i.kind)[1]} ${i.title}${i.booking === 'todo' ? ' (🎟️ to book)' : i.booking === 'booked' ? ' ✅' : ''}`)
+  }
+  lines.push('', `Plan together on Yatra 👉 ${location.origin}/#/t/${trip.id}`)
+  const text = lines.join('\n')
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+      <div className="flex justify-between items-center"><p className="text-sm font-semibold">Share the itinerary</p><button aria-label="Close" className="text-slate-400" onClick={onClose}>✕</button></div>
+      <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap text-xs text-slate-600 bg-white rounded-lg p-2 ring-1 ring-slate-200">{text}</pre>
+      <div className="flex gap-2">
+        <WhatsAppButton className="flex-1" label="Send on WhatsApp" text={text} />
+        <button className="btn-ghost flex-1 text-sm" onClick={async () => { try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch {} }}>{copied ? 'Copied ✓' : 'Copy text'}</button>
+      </div>
+    </div>
   )
 }
 

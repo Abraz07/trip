@@ -28,7 +28,16 @@ export class AIError extends Error {}
 // Ask Gemini for JSON matching `schema` (OpenAPI-style schema object). `parts` are text or {inlineData}.
 // thinking: 'minimal' is ~7x faster (≈3–4 s vs 23–37 s measured) with the same quality for simple
 // planning lists; leave undefined for tasks where accuracy matters more than speed (bill splitting).
-export async function askJSON({ system, parts, schema, temperature = 0.3, thinking }) {
+export function askJSON(opts) {
+  return run({ ...opts, json: true })
+}
+
+// Plain-text answer. urlContext: let Gemini open URLs in the prompt; returns { text, urlStatus: { url: status } }.
+export function askText(opts) {
+  return run({ ...opts, json: false, thinking: opts.thinking || 'minimal' })
+}
+
+async function run({ system, parts, schema, temperature = 0.3, thinking, json, urlContext }) {
   const key = getGeminiApiKey()
   if (!key) throw new AIError('AI isn’t set up for this app yet.')
   const skips = readSkips()
@@ -39,7 +48,7 @@ export async function askJSON({ system, parts, schema, temperature = 0.3, thinki
     // Gemini sometimes answers 503 "high demand" for a moment — retry the same model once.
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        return await callOnce({ key, model, system, parts, schema, temperature, thinking })
+        return await callOnce({ key, model, system, parts, schema, temperature, thinking, json, urlContext })
       } catch (e) {
         last = e
         if (e.retryable && attempt === 0) { await new Promise((r) => setTimeout(r, 1200)); continue }
@@ -53,16 +62,16 @@ export async function askJSON({ system, parts, schema, temperature = 0.3, thinki
   throw last?.quota ? new AIError('AI’s free daily limit is used up for now. Try again later today.') : last
 }
 
-async function callOnce({ key, model, system, parts, schema, temperature, thinking }) {
+async function callOnce({ key, model, system, parts, schema, temperature, thinking, json, urlContext }) {
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
     body: JSON.stringify({
       systemInstruction: system ? { parts: [{ text: system }] } : undefined,
       contents: [{ role: 'user', parts: parts.map((p) => (typeof p === 'string' ? { text: p } : p)) }],
+      ...(urlContext ? { tools: [{ url_context: {} }] } : {}),
       generationConfig: {
-        responseMimeType: 'application/json',
-        responseSchema: schema,
+        ...(json ? { responseMimeType: 'application/json', responseSchema: schema } : {}),
         temperature,
         ...(thinking ? { thinkingConfig: { thinkingLevel: thinking } } : {}),
       },
@@ -83,6 +92,10 @@ async function callOnce({ key, model, system, parts, schema, temperature, thinki
     throw new AIError(msg || `AI request failed (${res.status}).`)
   }
   const text = j.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || ''
+  if (!json) {
+    const urlStatus = Object.fromEntries((j.candidates?.[0]?.urlContextMetadata?.urlMetadata || []).map((m) => [m.retrievedUrl, m.urlRetrievalStatus]))
+    return { text, urlStatus }
+  }
   try {
     return JSON.parse(text)
   } catch {

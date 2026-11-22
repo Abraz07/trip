@@ -3,6 +3,7 @@ import { refreshPush } from '../push'
 import { useDoc, useCol, joinTrip, recordUserTrip, getLocalTrips } from '../data'
 import { getTheme } from '../themes'
 import ThemePickerModal from '../components/ThemePickerModal'
+import TripSettings from '../components/TripSettings'
 import { Center } from '../App'
 import { GoogleButton, GuestForm, OrDivider, PrivacyNote, useGoogleSignIn, getSavedName } from '../components/Auth'
 import Today from './Today'
@@ -58,6 +59,7 @@ function TripInner({ tripId, trip, uid, me, members, tab, setTab }) {
   const [toast, setToast] = useState(null)
   const [showSwitcher, setShowSwitcher] = useState(false)
   const [showThemePicker, setShowThemePicker] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [copied, setCopied] = useState(false)
   const myTrips = getLocalTrips().filter((t) => t.id !== tripId)
   const theme = getTheme(trip.theme)
@@ -138,12 +140,12 @@ function TripInner({ tripId, trip, uid, me, members, tab, setTab }) {
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
-              aria-label="Customize destination theme and cover"
-              title="Change theme or cover photo"
-              onClick={() => setShowThemePicker(true)}
+              aria-label="Trip settings: name, dates, theme"
+              title="Edit trip name, dates, theme"
+              onClick={() => setShowSettings(true)}
               className="size-8 grid place-items-center rounded-lg bg-white/20 hover:bg-white/30 text-white text-xs font-medium transition backdrop-blur-xs"
             >
-              🎨
+              ⚙️
             </button>
             <button
               type="button"
@@ -163,6 +165,11 @@ function TripInner({ tripId, trip, uid, me, members, tab, setTab }) {
           </div>
         )}
       </header>
+
+      {showSettings && (
+        <TripSettings tripId={tripId} trip={trip} uid={uid} onClose={() => setShowSettings(false)}
+          onOpenTheme={() => { setShowSettings(false); setShowThemePicker(true) }} />
+      )}
 
       {/* Destination Theme & Cover Picker Modal */}
       {showThemePicker && (

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { askJSON } from '../ai'
 import { inr } from '../settle'
+import { extractUrls, resolveLinks, describeResolved } from '../links'
 
 // Chat to build or edit the plan: paste a whole itinerary, or say "move rafting to day 2".
 // The AI proposes changes; nothing is saved until the person reviews them and taps Apply.
@@ -17,12 +18,15 @@ const STOP = {
   notes: { type: 'STRING', description: 'extra details from the message (booking IDs, contacts), else empty' },
   booking: { type: 'STRING', enum: ['none', 'todo', 'booked'], description: 'todo if the user says to book it / needs booking; booked if they say it is booked/confirmed' },
   bookingRef: { type: 'STRING', description: 'booking ID / PNR / ref if given, else empty' },
+  lat: { type: 'NUMBER', description: 'only if this stop came from a shared link with an exact location; else omit' },
+  lng: { type: 'NUMBER', description: 'only if this stop came from a shared link with an exact location; else omit' },
 }
 
 export default function PlanChat({ trip, days, items, onAdd, onUpdate, onRemove, onAddDestinations, onClose }) {
   const [chat, setChat] = useState([])
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
+  const [linkNote, setLinkNote] = useState('')
   const [proposal, setProposal] = useState(null) // { add: [], update: [], remove: [], destinations: [] } with .keep flags
   const [applying, setApplying] = useState(false)
 
@@ -37,6 +41,17 @@ export default function PlanChat({ trip, days, items, onAdd, onUpdate, onRemove,
     setMsg(''); setBusy(true); setProposal(null)
     setChat((c) => [...c, { role: 'you', text }])
     try {
+      // Work out which places any pasted links point to before planning with them.
+      const urls = extractUrls(text)
+      let linkInfo = ''
+      if (urls.length) {
+        setLinkNote(`🔗 Reading ${urls.length} link${urls.length > 1 ? 's' : ''}…`)
+        const found = await resolveLinks(urls)
+        setLinkNote('')
+        linkInfo = `Links the user shared, already resolved:\n${found.map(describeResolved).join('\n')}`
+        const lines = found.map((r) => (r.ok ? `🔗 ${[r.name, r.town].filter(Boolean).join(', ')}${r.lat != null ? ' 📍' : ''}` : `⚠️ Couldn't open ${r.url.replace(/^https?:\/\//, '').slice(0, 40)} — tell me which place it is`))
+        setChat((c) => [...c, { role: 'ai', text: lines.join('\n') }])
+      }
       const calendar = days.map((d) => `Day ${d.n} = ${d.date} (${new Date(d.date + 'T00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })})`).join('\n')
       const current = days.map((d) => {
         const l = items.filter((i) => i.date === d.date).sort((a, b) => (a.time || '99').localeCompare(b.time || '99'))
@@ -54,6 +69,7 @@ export default function PlanChat({ trip, days, items, onAdd, onUpdate, onRemove,
           `Trip "${trip.name}" calendar:\n${calendar}`,
           `Current plan:\n${current}`,
           ...(chat.length ? [`Earlier in this chat:\n${chat.slice(-6).map((c) => `${c.role}: ${c.text}`).join('\n')}`] : []),
+          ...(linkInfo ? [linkInfo] : []),
           `User: ${text}`,
         ],
         schema: {
@@ -111,14 +127,14 @@ export default function PlanChat({ trip, days, items, onAdd, onUpdate, onRemove,
         <button aria-label="Close chat" className="text-slate-400" onClick={onClose}>✕</button>
       </div>
       {chat.length === 0 && (
-        <p className="text-xs text-slate-600">Paste your whole itinerary (from WhatsApp, notes, anywhere) or ask for changes — "move rafting to day 2", "add dinner at 8pm on day 1". You'll see the changes before anything is saved.</p>
+        <p className="text-xs text-slate-600">Paste your whole itinerary (from WhatsApp, notes, anywhere), share Google Maps links, or ask for changes — "move rafting to day 2", "add dinner at 8pm on day 1". You'll see the changes before anything is saved.</p>
       )}
       {chat.length > 0 && (
         <div className="space-y-1.5 max-h-64 overflow-y-auto" aria-live="polite">
           {chat.map((c, i) => (
             <p key={i} className={`rounded-xl px-3 py-1.5 w-fit max-w-[90%] whitespace-pre-wrap ${c.role === 'you' ? 'ml-auto bg-teal-700 text-white' : 'bg-white border border-violet-200'}`}>{c.text.length > 600 && c.role === 'you' ? c.text.slice(0, 600) + '…' : c.text}</p>
           ))}
-          {busy && <p className="text-violet-700 animate-pulse">Reading your plan…</p>}
+          {busy && <p className="text-violet-700 animate-pulse">{linkNote || 'Reading your plan…'}</p>}
         </div>
       )}
 
