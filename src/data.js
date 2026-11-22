@@ -113,7 +113,12 @@ export function useUserTrips(uid) {
     if (!uid || !db) return
     const q = collection(db, 'users', uid, 'trips')
     return onSnapshot(q, (s) => {
-      const remote = s.docs.map((d) => ({ id: d.id, ...d.data() }))
+      // Cloud entries store lastOpened as a Firestore Timestamp; local ones as epoch ms. Normalise to ms so sorting works.
+      const remote = s.docs.map((d) => {
+        const data = d.data()
+        const lo = data.lastOpened
+        return { id: d.id, ...data, lastOpened: typeof lo?.toMillis === 'function' ? lo.toMillis() : Number(lo) || Date.now() }
+      })
       if (remote.length > 0) {
         // Merge with local storage
         const map = new Map()
