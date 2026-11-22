@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "deploy": "vite build && firebase deploy"
+    "deploy": "vite build && npx -y firebase-tools@13 deploy --only hosting,firestore --project trip-e42a4"
   },
   "dependencies": {
     "firebase": "^11.10.0",
