@@ -8,6 +8,7 @@ import { askJSON, aiAvailable } from '../ai'
 import { inr } from '../settle'
 import { driveTime, parseDuration, toMin, fmtMin } from '../routing'
 import Destinations from './Destinations'
+import { locateStop } from '../locateStop'
 import AddToPlan, { nextFreeTime } from '../components/AddToPlan'
 import PlanChat from './PlanChat'
 import { WhatsAppButton } from '../share'
@@ -59,6 +60,27 @@ export default function Plan({ tripId, trip, uid, setTab, members = [], byId = {
   const [titleEdit, setTitleEdit] = useState(null)
   const [collapsed, setCollapsed] = useState(() => new Set())
   const [reordering, setReordering] = useState(null)
+  const [pinState, setPinState] = useState({}) // stop id -> 'busy' | error message
+
+  // 📍 Map Pin: find the stop on the map *before* switching tabs, so the Map can zoom straight to it.
+  // Titles like "Arrival at Alnavar Station" aren't places, so locateStop cleans them up and tries the
+  // trip's destinations too. If nothing matches, stay here and say what to fix instead of doing nothing.
+  async function openOnMap(i) {
+    const focus = (lat, lng) => {
+      sessionStorage.setItem('yatra:map_focus', JSON.stringify({ id: i.id, date: i.date, lat, lng, title: i.title, place: i.place || i.title }))
+      setTab('map')
+    }
+    if (hasCoords(i)) return focus(i.lat, i.lng)
+    setPinState((m) => ({ ...m, [i.id]: 'busy' }))
+    const g = await locateStop(i, trip.destinations || [])
+    if (g) {
+      update(tripId, 'plan', i.id, { lat: g.lat, lng: g.lng }).catch(() => {})
+      setPinState((m) => ({ ...m, [i.id]: null }))
+      focus(g.lat, g.lng)
+    } else {
+      setPinState((m) => ({ ...m, [i.id]: 'Couldn’t find this on the map — tap ✎ and add a place name (e.g. “Alnavar Station”) or a Google Maps link.' }))
+    }
+  }
   const [filterCategory, setFilterCategory] = useState('all')
 
   async function saveOrder(ordered) {
@@ -777,42 +799,16 @@ export default function Plan({ tripId, trip, uid, setTab, members = [], byId = {
                                 {setTab && (i.place || i.lat || i.title) && (
                                   <button
                                     type="button"
-                                    onClick={() => {
-                                      const loc = i.place || i.title
-                                      if (hasCoords(i)) {
-                                        sessionStorage.setItem(
-                                          'yatra:map_focus',
-                                          JSON.stringify({ id: i.id, date: i.date, lat: i.lat, lng: i.lng, title: i.title, place: loc })
-                                        )
-                                        setTab('map')
-                                      } else {
-                                        const fromText = extractCoordsFromText(loc)
-                                        if (fromText) {
-                                          update(tripId, 'plan', i.id, { lat: fromText.lat, lng: fromText.lng }).catch(() => {})
-                                          sessionStorage.setItem(
-                                            'yatra:map_focus',
-                                            JSON.stringify({ id: i.id, date: i.date, lat: fromText.lat, lng: fromText.lng, title: i.title, place: loc })
-                                          )
-                                          setTab('map')
-                                        } else {
-                                          sessionStorage.setItem(
-                                            'yatra:map_focus',
-                                            JSON.stringify({ id: i.id, date: i.date, place: loc, title: i.title })
-                                          )
-                                          if (loc) {
-                                            geocodePlace(loc).then((g) => {
-                                              if (g?.lat) update(tripId, 'plan', i.id, { lat: g.lat, lng: g.lng }).catch(() => {})
-                                            })
-                                          }
-                                          setTab('map')
-                                        }
-                                      }
-                                    }}
+                                    disabled={pinState[i.id] === 'busy'}
+                                    onClick={() => openOnMap(i)}
                                     className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#FAF2EE] text-[#C2410C] hover:bg-[#FFEDD5] font-medium text-xs border border-[#C2410C]/20 transition active:scale-95"
                                   >
                                     <span>📍</span>
-                                    <span>Map Pin →</span>
+                                    <span>{pinState[i.id] === 'busy' ? 'Finding…' : 'Map Pin →'}</span>
                                   </button>
+                                )}
+                                {pinState[i.id] && pinState[i.id] !== 'busy' && (
+                                  <p role="alert" className="basis-full text-[11px] text-[#B91C1C] leading-snug">{pinState[i.id]}</p>
                                 )}
                               </div>
 
