@@ -3,12 +3,33 @@ import { useCol, add, remove } from '../data'
 import { tripDays } from './Trip'
 import { MapLink } from './Today'
 import ConfirmDialog from '../components/ConfirmDialog'
+import { geocodePlace } from '../geocode'
+import { ymd } from './Trip'
 
-export default function Plan({ tripId, trip, setTab }) {
+export default function Plan({ tripId, trip, uid, setTab }) {
   const items = useCol(tripId, 'plan', 'time')
   const days = tripDays(trip)
   const [adding, setAdding] = useState(null)
   const [deletingItem, setDeletingItem] = useState(null)
+  const places = useCol(tripId, 'places')
+  const visited = Object.fromEntries(places.filter((p) => p.planId).map((p) => [p.planId, p]))
+  const [marking, setMarking] = useState({}) // planId -> 'busy' | error text
+
+  // Save a plan stop as a visited place (rate it later in More → Places).
+  async function markVisited(i) {
+    setMarking((m) => ({ ...m, [i.id]: 'busy' }))
+    let lat = i.lat, lng = i.lng
+    if (typeof lat !== 'number' || typeof lng !== 'number') {
+      const g = await geocodePlace(i.place || i.title)
+      lat = g?.lat; lng = g?.lng
+    }
+    if (typeof lat !== 'number') {
+      setMarking((m) => ({ ...m, [i.id]: "Couldn't find it on the map — mark it from More → Places instead." }))
+      return
+    }
+    await add(tripId, 'places', { name: i.title, lat, lng, category: 'other', rating: 0, note: '', planId: i.id, by: uid, date: ymd(new Date()) })
+    setMarking((m) => ({ ...m, [i.id]: null }))
+  }
 
   return (
     <>
@@ -62,6 +83,15 @@ export default function Plan({ tripId, trip, setTab }) {
                       </div>
                     )}
                     {i.notes && <p className="text-xs text-slate-500 whitespace-pre-wrap mt-0.5">{i.notes}</p>}
+                    <div className="mt-1">
+                      {visited[i.id]
+                        ? <span className="text-[11px] font-semibold text-teal-700">✓ Visited{visited[i.id].rating ? ` · ${'★'.repeat(visited[i.id].rating)}` : ''}</span>
+                        : <button type="button" disabled={marking[i.id] === 'busy'} onClick={() => markVisited(i)}
+                            className="text-[11px] border border-slate-300 rounded-full px-2 py-0.5 font-medium text-slate-600 hover:border-teal-600 hover:text-teal-700">
+                            {marking[i.id] === 'busy' ? 'Saving…' : '✓ Mark visited'}
+                          </button>}
+                      {marking[i.id] && marking[i.id] !== 'busy' && <p className="text-[11px] text-red-600 mt-0.5">{marking[i.id]}</p>}
+                    </div>
                   </div>
                   <button
                     aria-label="Delete"

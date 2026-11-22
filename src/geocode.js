@@ -105,3 +105,19 @@ async function lookup(placeName) {
 
   return null
 }
+
+// Turn GPS coordinates into a readable place name (e.g. "Om Beach, Gokarna"). Same 1 req/s queue as search.
+export async function reverseGeocode(lat, lng) {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&zoom=17&lat=${lat}&lon=${lng}`
+    const res = await throttle(() => fetch(url, { headers: { 'Accept-Language': 'en' } }))
+    if (!res.ok) return null
+    const d = await res.json()
+    const a = d.address || {}
+    const main = d.name || a.tourism || a.amenity || a.leisure || a.natural || a.road || ''
+    const area = a.village || a.town || a.city || a.suburb || a.county || ''
+    return { name: [main, area].filter(Boolean).join(', ') || d.display_name || '', address: d.display_name || '' }
+  } catch {
+    return null
+  }
+}

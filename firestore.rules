@@ -10,6 +10,16 @@ service cloud.firestore {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }
 
+    // Public "places we visited" lists. Anyone with the link can read one; only members of
+    // that trip can publish or refresh it, and it can't be pointed at a different trip.
+    match /shared/{shareId} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if isMember(request.resource.data.tripId) && request.resource.data.by == request.auth.uid;
+      allow update: if isMember(resource.data.tripId) && request.resource.data.tripId == resource.data.tripId;
+      allow delete: if isMember(resource.data.tripId);
+    }
+
     match /trips/{tripId} {
       // Anyone holding the (unguessable) link can see the trip name to join it.
       allow get: if signedIn();
