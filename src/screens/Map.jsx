@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { resolvePlaceLink } from '../links'
+import { useDragReorder, stopOrder, saveDayOrder } from '../useDragReorder'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { serverTimestamp } from 'firebase/firestore'
@@ -394,7 +395,16 @@ export default function Map({ tripId, trip, uid, byId }) {
         return { ...it, lat, lng }
       })
       .filter((it) => typeof it.lat === 'number' && !isNaN(it.lat) && typeof it.lng === 'number' && !isNaN(it.lng))
+      .sort(stopOrder)
   }, [planItems, selectedDay, dynamicCoords])
+
+  // Press-and-hold a stop in the list, then drag to reorder it within its day.
+  const dnd = useDragReorder({
+    items: filteredStops,
+    groupOf: (s) => s.date,
+    onReorder: (group) => saveDayOrder(tripId, group),
+  })
+  const listStops = dnd.preview(filteredStops)
 
   const liveFriends = useMemo(() => {
     return locs.filter((l) => l.sharing && l.at)
@@ -1284,19 +1294,20 @@ export default function Map({ tripId, trip, uid, byId }) {
             <h3 className="font-semibold text-xs text-[#57534e] uppercase tracking-wider">
               {selectedDay === 'all' ? 'All Scheduled Stops' : `Day's Stops (In Sequence)`}
             </h3>
-            <span className="text-xs text-[#c2410c] font-medium">Tap stop to center map</span>
+            <span className="text-[11px] text-[#c2410c] font-medium text-right leading-tight">Tap to center · hold &amp; drag to reorder</span>
           </div>
           <ul className="divide-y divide-[#f0ede8] max-h-64 overflow-y-auto">
-            {filteredStops.map((s, idx) => {
+            {listStops.map((s, idx) => {
               const theme = getCategoryTheme(s)
               const isActive = activeStopId === s.id
               const isVisited = !!s.visited
-              const prev = idx > 0 ? filteredStops[idx - 1] : null
+              const prev = idx > 0 ? listStops[idx - 1] : null
               const distFromPrev = prev ? distMeters([prev.lat, prev.lng], [s.lat, s.lng]) : null
 
               return (
                 <li
                   key={s.id}
+                  {...dnd.rowProps(s)}
                   onClick={() => {
                     setActiveStopId(s.id)
                     map.current?.flyTo([s.lat, s.lng], 16, { animate: true, duration: 0.8 })
