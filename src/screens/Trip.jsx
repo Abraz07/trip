@@ -268,12 +268,26 @@ function TripInner({ tripId, trip, uid, me, members, tab, setTab }) {
 function Join({ trip, uid }) {
   const [name, setName] = useState(() => { try { return localStorage.getItem('yatra:name') || '' } catch { return '' } })
   const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
 
   async function go(e) {
     e.preventDefault()
-    setBusy(true)
-    try { localStorage.setItem('yatra:name', name) } catch {}
-    await joinTrip(trip.id, uid, name.trim())
+    const n = name.trim()
+    if (!n) return
+    setBusy(true); setErr('')
+    try { localStorage.setItem('yatra:name', n) } catch {}
+    try {
+      // Offline, Firestore queues the write and never settles — so don't wait forever.
+      await Promise.race([
+        joinTrip(trip.id, uid, n),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 15000)),
+      ])
+    } catch (e2) {
+      setErr(!navigator.onLine || e2.message === 'timeout'
+        ? "Couldn't reach the server — check your internet and tap Join again."
+        : `Couldn't join: ${e2.message}`)
+      setBusy(false)
+    }
   }
 
   return (
@@ -284,8 +298,9 @@ function Join({ trip, uid }) {
       <p className="text-slate-500 text-sm">{fmtRange(trip.start, trip.end)}</p>
       <form onSubmit={go} className="mt-6 flex gap-2 w-80 max-w-full mx-auto">
         <input required autoFocus className="input" placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} />
-        <button disabled={busy} className="btn">Join</button>
+        <button disabled={busy || !name.trim()} className="btn">{busy ? 'Joining…' : 'Join'}</button>
       </form>
+      {err && <p role="alert" className="mt-3 text-sm text-red-600 max-w-80 mx-auto">{err}</p>}
     </Center>
   )
 }
