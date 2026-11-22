@@ -2,10 +2,17 @@ import { useState } from 'react'
 import { createTrip, useUserTrips, removeLocalTrip } from '../data'
 import { fmtRange } from './Trip'
 import { linkAccountWithGoogle, signOutUser } from '../firebase'
+import { DESTINATION_THEMES, getTheme, detectThemeFromName } from '../themes'
 
 export default function Home({ uid, user, onUserChange }) {
   const myTrips = useUserTrips(uid)
-  const [f, setF] = useState({ name: '', start: '', end: '', me: localStorage.getItem('yatra:name') || '' })
+  const [f, setF] = useState({
+    name: '',
+    start: '',
+    end: '',
+    me: localStorage.getItem('yatra:name') || '',
+    theme: 'beach',
+  })
   const [busy, setBusy] = useState(false)
   const [syncingGoogle, setSyncingGoogle] = useState(false)
   const [showCreate, setShowCreate] = useState(myTrips.length === 0)
@@ -13,7 +20,15 @@ export default function Home({ uid, user, onUserChange }) {
   const [userName, setUserName] = useState(f.me)
   const [editingName, setEditingName] = useState(false)
 
-  const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
+  const set = (k) => (e) => {
+    const val = e.target.value
+    if (k === 'name') {
+      const detected = detectThemeFromName(val)
+      setF((prev) => ({ ...prev, name: val, theme: detected }))
+    } else {
+      setF((prev) => ({ ...prev, [k]: val }))
+    }
+  }
 
   async function submit(e) {
     e.preventDefault()
@@ -48,7 +63,6 @@ export default function Home({ uid, user, onUserChange }) {
       const updated = await linkAccountWithGoogle()
       if (updated) {
         onUserChange?.(updated)
-        // If Google user has a display name, auto-fill
         if (updated.displayName && !userName) {
           setUserName(updated.displayName)
           setF((prev) => ({ ...prev, me: updated.displayName }))
@@ -183,56 +197,81 @@ export default function Home({ uid, user, onUserChange }) {
         )}
 
         {/* List of Trip Cards */}
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           {myTrips.map((t) => {
             const isActive = t.start && t.end && todayStr >= t.start && todayStr <= t.end
             const isUpcoming = t.start && todayStr < t.start
             const isDone = t.end && todayStr > t.end
+            const theme = getTheme(t.theme)
 
             return (
               <div
                 key={t.id}
                 onClick={() => { location.hash = `#/t/${t.id}` }}
-                className="card p-4 hover:border-teal-600 transition cursor-pointer shadow-xs relative group flex items-center justify-between gap-3"
+                className="card p-0 overflow-hidden hover:shadow-md transition cursor-pointer relative group border-slate-200"
               >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-bold text-base text-slate-900 truncate">{t.name || 'Untitled Trip'}</h3>
-                    {isActive && (
-                      <span className="text-[10px] bg-teal-100 text-teal-800 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                        Active
-                      </span>
-                    )}
-                    {isUpcoming && (
-                      <span className="text-[10px] bg-amber-100 text-amber-800 font-medium px-2 py-0.5 rounded-full">
-                        Upcoming
-                      </span>
-                    )}
-                    {isDone && (
-                      <span className="text-[10px] bg-slate-100 text-slate-500 font-medium px-2 py-0.5 rounded-full">
-                        Completed
-                      </span>
-                    )}
+                {/* Visual Destination Hero Header on Card */}
+                <div
+                  className={`relative p-3.5 text-white ${
+                    t.coverUrl ? 'bg-slate-900' : `bg-gradient-to-r ${theme.gradient}`
+                  }`}
+                >
+                  {t.coverUrl && (
+                    <img
+                      src={t.coverUrl}
+                      alt=""
+                      className="absolute inset-0 size-full object-cover opacity-50"
+                    />
+                  )}
+                  <div className="relative z-10 flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl drop-shadow">{theme.icon}</span>
+                      <h3 className="font-bold text-base text-white truncate drop-shadow-xs">
+                        {t.name || 'Untitled Trip'}
+                      </h3>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {isActive && (
+                        <span className="text-[10px] bg-emerald-400 text-emerald-950 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow-2xs">
+                          Active
+                        </span>
+                      )}
+                      {isUpcoming && (
+                        <span className="text-[10px] bg-white/30 backdrop-blur-xs text-white font-semibold px-2 py-0.5 rounded-full">
+                          Upcoming
+                        </span>
+                      )}
+                      {isDone && (
+                        <span className="text-[10px] bg-black/30 backdrop-blur-xs text-slate-200 font-medium px-2 py-0.5 rounded-full">
+                          Completed
+                        </span>
+                      )}
+
+                      <button
+                        aria-label="Remove from list"
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          removeLocalTrip(t.id)
+                          window.location.reload()
+                        }}
+                        className="size-6 grid place-items-center text-white/70 hover:text-white rounded-full hover:bg-black/20"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-xs text-slate-500 mt-1">
-                    {t.start && t.end ? fmtRange(t.start, t.end) : 'Dates pending'}
-                  </p>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-teal-700 text-sm font-semibold">Open →</span>
-                  <button
-                    aria-label="Remove from list"
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      removeLocalTrip(t.id)
-                      window.location.reload()
-                    }}
-                    className="size-7 grid place-items-center text-slate-300 hover:text-red-500 rounded-full hover:bg-slate-100"
-                  >
-                    ✕
-                  </button>
+                {/* Card Body */}
+                <div className="p-3 bg-white flex items-center justify-between text-xs">
+                  <p className="text-slate-500 font-medium">
+                    📅 {t.start && t.end ? fmtRange(t.start, t.end) : 'Dates pending'}
+                  </p>
+                  <span className="text-teal-700 font-bold flex items-center gap-1">
+                    Open Trip →
+                  </span>
                 </div>
               </div>
             )
@@ -242,7 +281,7 @@ export default function Home({ uid, user, onUserChange }) {
 
       {/* Create Trip Form (Collapsible when user has trips) */}
       {showCreate && (
-        <form onSubmit={submit} className="card space-y-3 border-teal-200 bg-teal-50/30">
+        <form onSubmit={submit} className="card space-y-3.5 border-teal-200 bg-teal-50/30">
           <div className="flex items-center justify-between pb-1 border-b border-teal-100">
             <h3 className="font-bold text-sm text-slate-800">Plan a New Trip</h3>
             {myTrips.length > 0 && (
@@ -255,16 +294,43 @@ export default function Home({ uid, user, onUserChange }) {
               </button>
             )}
           </div>
+
           <label className="block text-xs font-semibold text-slate-700">
-            Trip Name
+            Trip Name & Destination
             <input
               required
               className="input mt-1"
-              placeholder="e.g. Goa Trip '26, Manali Trek"
+              placeholder="e.g. Goa Trip '26, Manali Trek, Dubai Vacation"
               value={f.name}
               onChange={set('name')}
             />
           </label>
+
+          {/* Destination Vibe Selector */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-700 block">Destination Theme:</label>
+            <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+              {DESTINATION_THEMES.map((theme) => {
+                const isSelected = f.theme === theme.id
+                return (
+                  <button
+                    key={theme.id}
+                    type="button"
+                    onClick={() => setF((prev) => ({ ...prev, theme: theme.id }))}
+                    className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition flex items-center gap-1 border ${
+                      isSelected
+                        ? 'bg-teal-700 text-white border-teal-700 shadow-2xs font-semibold'
+                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <span>{theme.icon}</span>
+                    <span>{theme.name.split(' ')[0]}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <label className="block text-xs font-semibold text-slate-700">
               Start Date
@@ -275,10 +341,12 @@ export default function Home({ uid, user, onUserChange }) {
               <input required type="date" className="input mt-1 text-xs" value={f.end} min={f.start} onChange={set('end')} />
             </label>
           </div>
+
           <label className="block text-xs font-semibold text-slate-700">
-            Your Name
-            <input required className="input mt-1" placeholder="Your name in the group" value={f.me} onChange={set('me')} />
+            Your Name in Group
+            <input required className="input mt-1" placeholder="Your name" value={f.me} onChange={set('me')} />
           </label>
+
           <button disabled={busy} className="btn w-full py-2.5 text-sm mt-2">
             {busy ? 'Creating trip…' : 'Create & Invite Friends'}
           </button>

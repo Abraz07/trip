@@ -4,6 +4,7 @@ import {
   serverTimestamp, query, orderBy,
 } from 'firebase/firestore'
 import { db } from './firebase'
+import { detectThemeFromName } from './themes'
 
 const tripRef = (t) => doc(db, 'trips', t)
 const col = (t, name) => collection(db, 'trips', t, name)
@@ -25,11 +26,20 @@ export function useCol(tripId, name, order = 'createdAt') {
 
 const newId = () => Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 6)
 
-export async function createTrip(uid, { name, start, end, me }) {
+export async function createTrip(uid, { name, start, end, me, theme, coverUrl }) {
   const id = newId()
-  await setDoc(tripRef(id), { name, start, end, createdBy: uid, createdAt: serverTimestamp() })
+  const chosenTheme = theme || detectThemeFromName(name)
+  await setDoc(tripRef(id), {
+    name,
+    start,
+    end,
+    theme: chosenTheme,
+    coverUrl: coverUrl || null,
+    createdBy: uid,
+    createdAt: serverTimestamp(),
+  })
   await joinTrip(id, uid, me)
-  recordUserTrip(uid, id, { name, start, end })
+  recordUserTrip(uid, id, { name, start, end, theme: chosenTheme, coverUrl: coverUrl || null })
   return id
 }
 
@@ -38,7 +48,13 @@ export const joinTrip = async (t, uid, name) => {
   // Fetch trip info to cache in user trips
   getOnce(t, null, t).then((tripData) => {
     if (tripData) {
-      recordUserTrip(uid, t, { name: tripData.name, start: tripData.start, end: tripData.end })
+      recordUserTrip(uid, t, {
+        name: tripData.name,
+        start: tripData.start,
+        end: tripData.end,
+        theme: tripData.theme || 'beach',
+        coverUrl: tripData.coverUrl || null,
+      })
     }
   }).catch(() => {})
 }
@@ -82,6 +98,8 @@ export function recordUserTrip(uid, tripId, meta = {}) {
       name: meta.name || list[idx]?.name || 'Trip',
       start: meta.start || list[idx]?.start || '',
       end: meta.end || list[idx]?.end || '',
+      theme: meta.theme || list[idx]?.theme || 'beach',
+      coverUrl: meta.coverUrl !== undefined ? meta.coverUrl : (list[idx]?.coverUrl || null),
       lastOpened: Date.now(),
     }
     if (idx >= 0) list[idx] = { ...list[idx], ...entry }
@@ -91,11 +109,17 @@ export function recordUserTrip(uid, tripId, meta = {}) {
 
   // 2. Firestore sync
   if (uid && db) {
-    setDoc(doc(db, 'users', uid, 'trips', tripId), {
-      tripId,
-      ...meta,
-      lastOpened: serverTimestamp(),
-    }, { merge: true }).catch(() => {})
+    // Firestore rejects undefined values synchronously (so .catch() never sees it) — drop them first.
+    const clean = Object.fromEntries(Object.entries(meta).filter(([, v]) => v !== undefined))
+    try {
+      setDoc(doc(db, 'users', uid, 'trips', tripId), {
+        tripId,
+        ...clean,
+        lastOpened: serverTimestamp(),
+      }, { merge: true }).catch(() => {})
+    } catch (e) {
+      console.warn('trip list sync skipped', e)
+    }
   }
 }
 

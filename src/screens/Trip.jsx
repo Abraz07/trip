@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { refreshPush } from '../push'
 import { useDoc, useCol, joinTrip, recordUserTrip, getLocalTrips } from '../data'
+import { getTheme } from '../themes'
+import ThemePickerModal from '../components/ThemePickerModal'
 import { Center } from '../App'
 import Today from './Today'
 import Plan from './Plan'
@@ -25,7 +27,13 @@ export default function Trip({ tripId, uid }) {
 
   useEffect(() => {
     if (trip && trip.id) {
-      recordUserTrip(uid, trip.id, { name: trip.name, start: trip.start, end: trip.end })
+      recordUserTrip(uid, trip.id, {
+        name: trip.name,
+        start: trip.start,
+        end: trip.end,
+        theme: trip.theme,
+        coverUrl: trip.coverUrl,
+      })
     }
   }, [trip, uid])
 
@@ -48,8 +56,11 @@ export default function Trip({ tripId, uid }) {
 function TripInner({ tripId, trip, uid, me, members, tab, setTab }) {
   const [toast, setToast] = useState(null)
   const [showSwitcher, setShowSwitcher] = useState(false)
+  const [showThemePicker, setShowThemePicker] = useState(false)
   const [copied, setCopied] = useState(false)
   const myTrips = getLocalTrips().filter((t) => t.id !== tripId)
+  const theme = getTheme(trip.theme)
+  const hasCover = Boolean(trip.coverUrl)
 
   useEffect(() => {
     let off
@@ -84,13 +95,24 @@ function TripInner({ tripId, trip, uid, me, members, tab, setTab }) {
   return (
     <div className="min-h-dvh max-w-md mx-auto pb-24">
       {/* Premium Sticky App Header */}
-      <header className="sticky top-0 z-20 bg-teal-800 text-white px-3 pt-[max(env(safe-area-inset-top),10px)] pb-2.5 shadow-md">
-        <div className="flex items-center justify-between gap-2">
+      <header
+        className={`sticky top-0 z-20 text-white px-3 pt-[max(env(safe-area-inset-top),10px)] pb-2.5 shadow-md relative overflow-hidden transition-all ${
+          hasCover ? 'bg-slate-950' : theme.headerBg
+        }`}
+      >
+        {hasCover && (
+          <img
+            src={trip.coverUrl}
+            alt="Trip Cover"
+            className="absolute inset-0 size-full object-cover opacity-35 pointer-events-none"
+          />
+        )}
+        <div className="relative z-10 flex items-center justify-between gap-2">
           {/* Back to Home / My Trips */}
           <a
             href="#/"
             aria-label="Back to My Trips"
-            className="size-8 grid place-items-center rounded-lg bg-teal-700/60 hover:bg-teal-700 text-white transition shrink-0"
+            className="size-8 grid place-items-center rounded-lg bg-white/20 hover:bg-white/30 text-white transition shrink-0 backdrop-blur-xs"
           >
             ←
           </a>
@@ -100,34 +122,58 @@ function TripInner({ tripId, trip, uid, me, members, tab, setTab }) {
             <button
               type="button"
               onClick={() => setShowSwitcher(!showSwitcher)}
-              className="inline-flex items-center justify-center gap-1.5 max-w-full px-2 py-0.5 rounded-lg hover:bg-teal-700/50 transition"
+              className="inline-flex items-center justify-center gap-1.5 max-w-full px-2 py-0.5 rounded-lg hover:bg-white/15 transition"
             >
+              <span className="text-sm shrink-0">{theme.icon}</span>
               <h1 className="text-base font-bold truncate leading-tight">{trip.name}</h1>
-              <span className="text-[10px] text-teal-200">▼</span>
+              <span className="text-[10px] opacity-75">▼</span>
             </button>
-            <p className="text-[11px] text-teal-200/90 leading-none">
+            <p className="text-[11px] text-white/80 leading-none">
               {fmtRange(trip.start, trip.end)} · {members.length} people
             </p>
           </div>
 
-          {/* Share Link Trigger */}
-          <button
-            type="button"
-            aria-label="Copy invite link"
-            onClick={copyLink}
-            className="size-8 grid place-items-center rounded-lg bg-teal-700/60 hover:bg-teal-700 text-white text-xs font-medium transition shrink-0"
-          >
-            {copied ? '✓' : '🔗'}
-          </button>
+          {/* Action Buttons: Theme Customizer + Share Link */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              aria-label="Customize destination theme and cover"
+              title="Change theme or cover photo"
+              onClick={() => setShowThemePicker(true)}
+              className="size-8 grid place-items-center rounded-lg bg-white/20 hover:bg-white/30 text-white text-xs font-medium transition backdrop-blur-xs"
+            >
+              🎨
+            </button>
+            <button
+              type="button"
+              aria-label="Copy invite link"
+              onClick={copyLink}
+              className="size-8 grid place-items-center rounded-lg bg-white/20 hover:bg-white/30 text-white text-xs font-medium transition backdrop-blur-xs"
+            >
+              {copied ? '✓' : '🔗'}
+            </button>
+          </div>
         </div>
 
         {/* Copy Toast banner */}
         {copied && (
-          <div className="mt-1 text-center text-[11px] text-teal-100 bg-teal-900/80 rounded py-0.5 animate-fade-in">
+          <div className="relative z-10 mt-1 text-center text-[11px] text-white/95 bg-black/40 backdrop-blur-xs rounded py-0.5 animate-fade-in">
             Invite link copied! Share with friends.
           </div>
         )}
       </header>
+
+      {/* Destination Theme & Cover Picker Modal */}
+      {showThemePicker && (
+        <ThemePickerModal
+          tripId={tripId}
+          currentTheme={trip.theme}
+          currentCoverUrl={trip.coverUrl}
+          uid={uid}
+          tripName={trip.name}
+          onClose={() => setShowThemePicker(false)}
+        />
+      )}
 
       {/* Trip Switcher Modal / Dropdown */}
       {showSwitcher && (

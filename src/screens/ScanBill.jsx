@@ -3,6 +3,7 @@ import { compress } from './Photos'
 import { readBill, itemSplits } from '../scan'
 import { inr } from '../settle'
 import { getGeminiApiKey, saveGeminiApiKey } from '../gemini'
+import { splitChat, describeBill } from '../splitAI'
 
 export default function ScanBill({ uid, members, onSave, onCancel }) {
   const input = useRef()
@@ -15,6 +16,44 @@ export default function ScanBill({ uid, members, onSave, onCancel }) {
   const [showKeyInput, setShowKeyInput] = useState(false)
   const [customKey, setCustomKey] = useState(getGeminiApiKey)
   const everyone = members.map((m) => m.id)
+  const [chat, setChat] = useState([]) // { role: 'you' | 'ai', text }
+  const [msg, setMsg] = useState('')
+  const [thinking, setThinking] = useState(false)
+  const [describe, setDescribe] = useState('')
+
+  async function sendChat(e) {
+    e?.preventDefault()
+    const text = msg.trim()
+    if (!text || thinking) return
+    setMsg(''); setThinking(true)
+    setChat((c) => [...c, { role: 'you', text }])
+    try {
+      const r = await splitChat({ items: bill.items, assign, members, uid, paidBy, history: chat, message: text })
+      setAssign(r.assign)
+      if (r.paidBy) setPaidBy(r.paidBy)
+      const warn = r.unknown.length ? ` (I don't know ${r.unknown.join(', ')} — they're not in this trip.)` : ''
+      setChat((c) => [...c, { role: 'ai', text: r.reply + warn }])
+    } catch (err) {
+      setChat((c) => [...c, { role: 'ai', text: `⚠️ ${err.message}` }])
+    }
+    setThinking(false)
+  }
+
+  async function fromDescription(e) {
+    e.preventDefault()
+    if (!describe.trim()) return
+    setStage('reading'); setErr('')
+    try {
+      const r = await describeBill({ message: describe.trim(), members, uid })
+      if (!r.bill.items.length) throw new Error("Couldn't work out an amount — include the total, e.g. 'Dinner 1450, Ravi paid'.")
+      setBill(r.bill); setAssign(r.assign)
+      if (r.paidBy) setPaidBy(r.paidBy)
+      setChat([{ role: 'you', text: describe.trim() }, { role: 'ai', text: r.reply || 'Here’s the split — check it below.' }])
+      setStage('edit')
+    } catch (err) {
+      setErr(err.message); setStage('error')
+    }
+  }
 
   async function pick(file, keyOverride) {
     if (!file && !preview) return
@@ -81,7 +120,7 @@ export default function ScanBill({ uid, members, onSave, onCancel }) {
         {preview && <img src={preview} alt="Bill" className="max-h-48 mx-auto rounded-lg shadow-xs" />}
         {stage === 'reading' && (
           <div className="py-4 space-y-2">
-            <p className="text-sm font-semibold text-teal-800 animate-pulse">Reading the bill with Gemini AI… 🔍</p>
+            <p className="text-sm font-semibold text-teal-800 animate-pulse">{preview ? 'Reading the bill with Gemini AI… 🔍' : 'Working out the split… ✨'}</p>
             <p className="text-xs text-slate-500">Extracting merchant, items, taxes & total</p>
           </div>
         )}
@@ -111,11 +150,16 @@ export default function ScanBill({ uid, members, onSave, onCancel }) {
         {stage !== 'reading' && (
           <>
             <p className="text-sm text-slate-600">Snap the whole bill, flat and in good light.</p>
-            <p className="text-[11px] text-slate-400">Protected by reCAPTCHA — Google <a className="underline" href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">Privacy</a> &amp; <a className="underline" href="https://policies.google.com/terms" target="_blank" rel="noreferrer">Terms</a> apply.</p>
             <div className="flex gap-2">
               <button className="btn-ghost flex-1" onClick={onCancel}>Cancel</button>
               <button className="btn flex-1" onClick={() => input.current.click()}>{stage === 'error' ? 'Try again' : '📷 Take photo'}</button>
             </div>
+            <form onSubmit={fromDescription} className="text-left pt-3 border-t border-slate-100 space-y-2">
+              <p className="text-xs font-semibold text-slate-600">✍️ No bill photo? Just describe it</p>
+              <textarea className="input text-sm" rows="2" value={describe} onChange={(e) => setDescribe(e.target.value)}
+                placeholder="Dinner at Namaste 1450, Ravi paid. Ravi and I had fish thali (480), Priya had veg biryani (180), rest shared" />
+              <button disabled={!describe.trim()} className="btn-ghost w-full text-sm">✨ Split it for me</button>
+            </form>
             {!showKeyInput && stage !== 'error' && (
               <button
                 type="button"
@@ -152,7 +196,24 @@ export default function ScanBill({ uid, members, onSave, onCancel }) {
   return (
     <section className="card space-y-3">
       <input className="input font-semibold" value={bill.merchant} placeholder="Where? (Restaurant)" onChange={(e) => setBill({ ...bill, merchant: e.target.value })} />
-      <p className="text-xs text-slate-500">Tap names to choose who had each item. Check prices against the bill.</p>
+      <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-3 space-y-2">
+        <p className="text-xs font-semibold text-violet-900">✨ Tell me who had what</p>
+        {chat.length > 0 && (
+          <div className="space-y-1.5 max-h-48 overflow-y-auto" aria-live="polite">
+            {chat.map((c, i) => (
+              <p key={i} className={`text-sm rounded-xl px-3 py-1.5 w-fit max-w-[90%] ${c.role === 'you' ? 'ml-auto bg-teal-700 text-white' : 'bg-white border border-violet-200'}`}>{c.text}</p>
+            ))}
+            {thinking && <p className="text-sm text-violet-700 animate-pulse">Thinking…</p>}
+          </div>
+        )}
+        <form onSubmit={sendChat} className="flex gap-2">
+          <input className="input text-sm" value={msg} onChange={(e) => setMsg(e.target.value)} disabled={thinking}
+            placeholder={chat.length ? 'Anything to change?' : 'Ravi had prawn fry, Priya & I shared biryani, drinks for all'} />
+          <button disabled={!msg.trim() || thinking} className="btn shrink-0 px-3">Send</button>
+        </form>
+        <p className="text-[11px] text-slate-500">The names below update — check them before saving.</p>
+      </div>
+      <p className="text-xs text-slate-500">Or tap names to choose who had each item. Check prices against the bill.</p>
 
       <ul className="space-y-3">
         {bill.items.map((it, i) => (

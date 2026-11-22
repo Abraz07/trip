@@ -76,8 +76,8 @@ export async function scanReceiptWithGemini(file, apiKeyOverride) {
 
   const { base64Data, previewUrl } = await prepareImageForOCR(file)
 
-  // We try gemini-2.5-flash first, and if unavailable fall back to gemini-1.5-flash
-  const models = ['gemini-2.5-flash', 'gemini-1.5-flash']
+  // Try the configured model first (gemini-2.5 is closed to new keys), then a fallback
+  const models = [import.meta.env.VITE_GEMINI_MODEL || 'gemini-3.5-flash', 'gemini-3-flash-preview']
   let lastError = null
 
   for (const model of models) {

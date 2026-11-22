@@ -39,6 +39,12 @@ service cloud.firestore {
         allow write: if isMember(tripId) && request.auth.uid == uid;
       }
 
+      // Opt-in face codes for photo tagging: members can read them; only you can add or remove yours.
+      match /faces/{uid} {
+        allow read: if isMember(tripId);
+        allow write: if isMember(tripId) && request.auth.uid == uid;
+      }
+
       match /documents/{docId} {
         allow read, create: if isMember(tripId);
         // Only whoever uploaded a document can change or delete it.
@@ -46,7 +52,7 @@ service cloud.firestore {
       }
 
       match /{sub}/{docId} {
-        allow read, write: if !(sub in ['members', 'locations', 'documents']) && isMember(tripId);
+        allow read, write: if !(sub in ['members', 'locations', 'documents', 'faces']) && isMember(tripId);
       }
     }
   }

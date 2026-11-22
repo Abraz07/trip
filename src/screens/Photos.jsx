@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage'
 import JSZip from 'jszip'
-import { useCol, newDocId, put, remove, getOnce } from '../data'
+import { useCol, newDocId, put, remove, getOnce, update, updateTrip } from '../data'
+import { arrayUnion, arrayRemove } from 'firebase/firestore'
+import { faceCodeFromSelfie, matchPeople } from '../faces'
 import { storage } from '../firebase'
 import { ymd } from './Trip'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -29,12 +31,56 @@ async function dataUrlToBlob(dataUrl) {
   return res.blob()
 }
 
-export default function Photos({ tripId, trip, uid, byId }) {
+export default function Photos({ tripId, trip, uid, byId, members = [] }) {
   const photos = useCol(tripId, 'photos')
   const input = useRef()
   const [progress, setProgress] = useState(null)
   const [zipping, setZipping] = useState(null)
   const [viewing, setViewing] = useState(null)
+  const faceDocs = useCol(tripId, 'faces')
+  const codes = Object.fromEntries(faceDocs.filter((f) => f.code).map((f) => [f.id, f.code]))
+  const myFace = faceDocs.find((f) => f.id === uid)
+  const [who, setWho] = useState('all')
+  const [faceBusy, setFaceBusy] = useState('')
+  const [faceErr, setFaceErr] = useState('')
+  const selfie = useRef()
+  const shown = who === 'all' ? photos : photos.filter((p) => p.people?.includes(who))
+
+  // Tag a newly uploaded photo with the people (who opted in) whose faces appear in it.
+  async function tagPhoto(id, src) {
+    if (!Object.keys(codes).length) return
+    try {
+      const people = await matchPeople(src, codes)
+      if (people.length) await update(tripId, 'photos', id, { people })
+    } catch (e) { console.warn('face tagging skipped', e) }
+  }
+
+  async function enrol(file) {
+    if (!file) return
+    setFaceErr(''); setFaceBusy('Setting up face matching (first time downloads ~12 MB)…')
+    try {
+      const code = await faceCodeFromSelfie(file)
+      await put(tripId, 'faces', uid, { code })
+      // Look for me in photos already uploaded.
+      for (let i = 0; i < photos.length; i++) {
+        setFaceBusy(`Finding you in photos… ${i + 1}/${photos.length}`)
+        const p = photos[i]
+        const src = p.fullUrl || (await getOnce(tripId, 'photoFull', p.id))?.data || p.thumb
+        const hit = await matchPeople(src, { [uid]: code }).catch(() => [])
+        if (hit.length) await update(tripId, 'photos', p.id, { people: arrayUnion(uid) })
+      }
+      setWho(uid)
+    } catch (e) { setFaceErr(e.message) }
+    setFaceBusy('')
+    if (selfie.current) selfie.current.value = ''
+  }
+
+  async function forgetMe() {
+    setFaceBusy('Removing your face data…')
+    await remove(tripId, 'faces', uid)
+    await Promise.all(photos.filter((p) => p.people?.includes(uid)).map((p) => update(tripId, 'photos', p.id, { people: arrayRemove(uid) })))
+    setWho('all'); setFaceBusy('')
+  }
 
   async function upload(files) {
     const list = [...files].filter((f) => f.type.startsWith('image/'))
@@ -93,6 +139,8 @@ export default function Photos({ tripId, trip, uid, byId }) {
           by: uid,
           date,
         })
+        setProgress(`Finding faces ${i + 1}/${list.length}…`)
+        await tagPhoto(id, fullUrl || (await compress(file, 1600, 0.82)))
       } catch (e) {
         alert(`Couldn't upload ${file.name}: ${e.message}`)
       }
@@ -146,7 +194,7 @@ export default function Photos({ tripId, trip, uid, byId }) {
   }
 
   const byDate = {}
-  for (const p of [...photos].reverse()) (byDate[p.date] ||= []).push(p)
+  for (const p of [...shown].reverse()) (byDate[p.date] ||= []).push(p)
 
   return (
     <>
@@ -168,8 +216,37 @@ export default function Photos({ tripId, trip, uid, byId }) {
       </div>
 
       <p className="text-xs text-slate-500 text-center">
-        {photos.length} photos · High-resolution gallery with real-time sync
+        {photos.length} photos · shared instantly · saved at up to 1600px
       </p>
+
+      <AlbumLink trip={trip} tripId={tripId} />
+
+      <section className="card space-y-2">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className="font-semibold text-sm">🙂 Find photos of people</p>
+            <p className="text-xs text-slate-500">
+              {myFace ? 'You’re set up — new photos with you get tagged automatically.' : 'Add a selfie to see every photo you’re in. Optional.'}
+            </p>
+          </div>
+          <input ref={selfie} type="file" accept="image/*" capture="user" hidden onChange={(e) => enrol(e.target.files?.[0])} />
+          {!myFace
+            ? <button disabled={!!faceBusy} className="btn text-xs py-1.5 px-3 shrink-0" onClick={() => selfie.current.click()}>Add my face</button>
+            : <button disabled={!!faceBusy} className="text-xs text-slate-500 underline shrink-0" onClick={forgetMe}>Remove my face</button>}
+        </div>
+        {faceBusy && <p className="text-xs text-violet-700 animate-pulse">{faceBusy}</p>}
+        {faceErr && <p className="text-xs text-red-600">{faceErr}</p>}
+        {!myFace && !faceBusy && <p className="text-[11px] text-slate-400">Matching runs on your phone. Your selfie isn’t uploaded — only a numeric face code that people in this trip can use to tag photos. Remove it any time.</p>}
+        {faceDocs.length > 0 && (
+          <div className="flex gap-1.5 overflow-x-auto pb-1">
+            {[['all', `All (${photos.length})`], ...faceDocs.map((f) => [f.id, `${f.id === uid ? '🙋 Me' : byId[f.id]?.name || '?'} (${photos.filter((p) => p.people?.includes(f.id)).length})`])].map(([k, l]) => (
+              <button key={k} onClick={() => setWho(k)} className={`shrink-0 rounded-full px-3 py-1.5 text-xs border ${who === k ? 'bg-teal-700 text-white border-teal-700' : 'bg-white border-slate-300'}`}>{l}</button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {photos.length > 0 && shown.length === 0 && <p className="card text-sm text-slate-500 text-center">No photos with {who === uid ? 'you' : byId[who]?.name} yet.</p>}
 
       {photos.length === 0 && (
         <p className="card text-sm text-slate-500 text-center py-6">
@@ -236,7 +313,10 @@ function Viewer({ photo, tripId, uid, byId, onClose }) {
         className="flex justify-between items-center p-4 pt-[max(env(safe-area-inset-top),16px)] text-white text-sm"
         onClick={(e) => e.stopPropagation()}
       >
-        <span>by {photo.by === uid ? 'you' : byId[photo.by]?.name || '?'}</span>
+        <span>
+          by {photo.by === uid ? 'you' : byId[photo.by]?.name || '?'}
+          {photo.people?.length > 0 && <span className="block text-xs text-white/70">with {photo.people.map((u) => (u === uid ? 'you' : byId[u]?.name || '?')).join(', ')}</span>}
+        </span>
         <div className="flex gap-4">
           <a href={src} target="_blank" rel="noreferrer" download={`yatra-${photo.id}.jpg`} className="underline font-medium">
             Save
@@ -264,4 +344,38 @@ function Viewer({ photo, tripId, uid, byId, onClose }) {
       />
     </div>
   )
+}
+
+// Link to a shared Google Photos (or any) album for full-quality originals.
+function AlbumLink({ trip, tripId }) {
+  const [editing, setEditing] = useState(false)
+  const [url, setUrl] = useState(trip?.albumUrl || '')
+  const [err, setErr] = useState('')
+  function save(e) {
+    e.preventDefault()
+    const v = url.trim()
+    if (v && !/^https:\/\/\S+$/.test(v)) return setErr('Paste a full https:// link, e.g. from Google Photos → Share → Create link.')
+    updateTrip(tripId, { albumUrl: v || null }); setEditing(false); setErr('')
+  }
+  if (editing) {
+    return (
+      <form onSubmit={save} className="card space-y-2">
+        <p className="text-sm font-semibold">🔗 Full-quality album</p>
+        <input autoFocus className="input text-sm" placeholder="https://photos.app.goo.gl/…" value={url} onChange={(e) => setUrl(e.target.value)} />
+        {err && <p className="text-xs text-red-600">{err}</p>}
+        <p className="text-[11px] text-slate-500">Make a shared album in Google Photos (Share → Create link) so everyone can add originals.</p>
+        <div className="flex gap-2"><button type="button" className="btn-ghost flex-1 text-sm" onClick={() => setEditing(false)}>Cancel</button><button className="btn flex-1 text-sm">Save</button></div>
+      </form>
+    )
+  }
+  return trip?.albumUrl
+    ? (
+      <div className="card flex items-center gap-3 py-3">
+        <span className="text-2xl">🖼️</span>
+        <div className="flex-1 min-w-0"><p className="text-sm font-semibold">Original-quality album</p><p className="text-xs text-slate-500 truncate">{trip.albumUrl}</p></div>
+        <a className="btn text-xs py-1.5 px-3" href={trip.albumUrl} target="_blank" rel="noreferrer">Open</a>
+        <button aria-label="Edit album link" className="text-slate-400" onClick={() => setEditing(true)}>✎</button>
+      </div>
+    )
+    : <button className="btn-ghost w-full text-xs" onClick={() => setEditing(true)}>🔗 Add a shared album for full-quality originals</button>
 }
