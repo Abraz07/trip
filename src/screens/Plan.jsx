@@ -31,7 +31,8 @@ const kindOf = (k) => KINDS.find(([v]) => v === k) || KINDS[0]
 const PACK_CATS = ['clothes', 'electronics', 'toiletries', 'medical', 'docs', 'gear']
 const hasCoords = (i) => typeof i?.lat === 'number' && typeof i?.lng === 'number'
 const dayLabel = (d) => `Day ${d.n} · ${new Date(d.date + 'T00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}`
-const byTime = (a, b) => (a.time || '99').localeCompare(b.time || '99')
+// Stops run in time order; `order` (set by Reorder) breaks ties, e.g. between stops with no time.
+const byTime = (a, b) => (a.time || '99').localeCompare(b.time || '99') || (a.order ?? 0) - (b.order ?? 0)
 
 export default function Plan({ tripId, trip, uid, setTab }) {
   const items = useCol(tripId, 'plan', 'time')
@@ -52,6 +53,17 @@ export default function Plan({ tripId, trip, uid, setTab }) {
   const [titleEdit, setTitleEdit] = useState(null)
   const [collapsed, setCollapsed] = useState(() => new Set())
   const [filterCat, setFilterCat] = useState('all')
+  const [reordering, setReordering] = useState(null) // date of the day being rearranged
+
+  // Save a new order: the day's time slots stay where they are and the stops move between them,
+  // so moving the 16:00 fort to the top makes it the 09:00 stop. Durations travel with their stop.
+  async function saveOrder(ordered) {
+    const slots = ordered.map((i) => i.time || '').sort((a, b) => (a || '99').localeCompare(b || '99'))
+    await Promise.all(ordered.map((i, k) => (i.time || '') === slots[k] && i.order === k
+      ? null
+      : update(tripId, 'plan', i.id, { time: slots[k], order: k })))
+    setReordering(null)
+  }
 
   const visited = Object.fromEntries(places.filter((p) => p.planId).map((p) => [p.planId, p]))
   const packed = new Set(packing.map((p) => (p.text || '').toLowerCase()))
@@ -499,8 +511,12 @@ export default function Plan({ tripId, trip, uid, setTab }) {
                   </p>
                 )}
 
+                {reordering === d.date && (
+                  <ReorderList list={fullList} onCancel={() => setReordering(null)} onSave={saveOrder} />
+                )}
+
                 {/* Timeline List */}
-                <ol className="relative space-y-0">
+                <ol className={`relative space-y-0 ${reordering === d.date ? 'hidden' : ''}`}>
                   {list.map((i, idx) => {
                     const [, icon, label] = kindOf(i.kind)
                     const next = list[idx + 1]
@@ -686,6 +702,15 @@ export default function Plan({ tripId, trip, uid, setTab }) {
                     >
                       + Add stop
                     </button>
+                    {fullList.length > 1 && reordering !== d.date && (
+                      <button
+                        className="btn-ghost text-xs py-2 px-3"
+                        onClick={() => { setEditing(null); setFilterCat('all'); setReordering(d.date) }}
+                        title="Rearrange the order of stops"
+                      >
+                        ⇅ Reorder
+                      </button>
+                    )}
                     {aiAvailable() && (
                       <button
                         disabled={a?.busy}
@@ -928,6 +953,51 @@ function Leg({ from, to }) {
 }
 
 // Stop Form: Add or Edit
+// Rearrange a day's stops with ▲▼ (more reliable than dragging on phones). Shows the time each
+// stop will get, since time slots stay put and the stops move between them.
+function ReorderList({ list, onSave, onCancel }) {
+  const [order, setOrder] = useState(list)
+  const [saving, setSaving] = useState(false)
+  const slots = list.map((i) => i.time || '').sort((a, b) => (a || '99').localeCompare(b || '99'))
+  const move = (k, dir) => {
+    const j = k + dir
+    if (j < 0 || j >= order.length) return
+    const next = [...order]
+    ;[next[k], next[j]] = [next[j], next[k]]
+    setOrder(next)
+  }
+  const changed = order.some((i, k) => i.id !== list[k].id)
+  return (
+    <div className="rounded-xl border border-teal-200 bg-teal-50/40 p-3 space-y-2">
+      <div>
+        <p className="text-sm font-semibold text-slate-900">⇅ Rearrange stops</p>
+        <p className="text-[11px] text-slate-500">Times stay in place — stops move between them.</p>
+      </div>
+      <ol className="space-y-1.5">
+        {order.map((i, k) => {
+          const [, icon] = kindOf(i.kind)
+          return (
+            <li key={i.id} className="flex items-center gap-2 rounded-lg bg-white border border-slate-200 px-2 py-1.5">
+              <span className="w-11 shrink-0 text-xs font-mono font-semibold text-teal-800 tabular-nums">{slots[k] || '—'}</span>
+              <span aria-hidden className="text-base">{icon}</span>
+              <span className="flex-1 min-w-0 truncate text-sm">{i.title}</span>
+              <button type="button" aria-label={`Move ${i.title} up`} disabled={k === 0} onClick={() => move(k, -1)}
+                className="size-9 grid place-items-center rounded-lg border border-slate-200 text-slate-600 disabled:opacity-30 active:bg-slate-100">▲</button>
+              <button type="button" aria-label={`Move ${i.title} down`} disabled={k === order.length - 1} onClick={() => move(k, 1)}
+                className="size-9 grid place-items-center rounded-lg border border-slate-200 text-slate-600 disabled:opacity-30 active:bg-slate-100">▼</button>
+            </li>
+          )
+        })}
+      </ol>
+      <div className="flex gap-2 pt-1">
+        <button type="button" className="btn-ghost flex-1 text-xs py-2" onClick={onCancel}>Cancel</button>
+        <button type="button" disabled={!changed || saving} className="btn flex-1 text-xs py-2"
+          onClick={async () => { setSaving(true); await onSave(order) }}>{saving ? 'Saving…' : 'Save order'}</button>
+      </div>
+    </div>
+  )
+}
+
 function StopForm({ initial, days, onSave, onCancel }) {
   const [v, setV] = useState({
     kind: 'place',
