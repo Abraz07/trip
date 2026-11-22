@@ -7,6 +7,7 @@ import { geocodePlace } from '../geocode'
 import { askJSON, aiAvailable } from '../ai'
 import { inr } from '../settle'
 import { driveTime, parseDuration, toMin, fmtMin } from '../routing'
+import Destinations from './Destinations'
 
 export const KINDS = [
   ['place', '📍', 'Sightseeing'],
@@ -118,6 +119,7 @@ export default function Plan({ tripId, trip, uid, setTab }) {
           {aiAvailable() && <button onClick={() => setPlanner(!planner)} className="flex-1 text-xs font-semibold rounded-xl border border-violet-200 bg-violet-50 text-violet-800 py-2">{planner ? 'Close planner' : '✨ Plan the whole trip'}</button>}
           {toBook.length > 0 && <button onClick={() => setShowToBook(!showToBook)} className="flex-1 text-xs font-semibold rounded-xl border border-amber-300 bg-amber-50 text-amber-800 py-2">🎟️ {toBook.length} still to book</button>}
         </div>
+        <Destinations tripId={tripId} trip={trip} uid={uid} days={days} onSchedule={addStop} planIds={new Set(items.map((i) => i.id))} />
         {showToBook && toBook.length > 0 && (
           <ul className="text-sm divide-y divide-slate-100 border border-amber-200 rounded-xl px-3">
             {toBook.map((i) => {
@@ -322,7 +324,7 @@ const INTERESTS = ['Beaches', 'Food', 'Heritage', 'Nature', 'Adventure', 'Nightl
 
 // AI drafts every day; nothing is saved until the group taps "Add".
 function TripPlanner({ trip, days, items, onAdd, onDone }) {
-  const [f, setF] = useState({ where: trip.name || '', from: '', pace: 'balanced', interests: ['Food', 'Beaches'], notes: '' })
+  const [f, setF] = useState({ where: trip.destinations?.length ? trip.destinations.join(', then ') : trip.name || '', from: '', pace: 'balanced', interests: ['Food', 'Beaches'], notes: '' })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [draft, setDraft] = useState(null) // [{ date, n, stops: [{...s, keep}] }]
