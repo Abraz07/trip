@@ -1,4 +1,4 @@
-name: CI/CD Pipeline
+name: CI
 
 on:
   push:
@@ -7,10 +7,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+# Deploys are done manually (npm run build && firebase deploy --only hosting,firestore).
 permissions:
-  checks: write
   contents: read
-  pull-requests: write
 
 jobs:
   test_and_build:
@@ -43,56 +42,3 @@ jobs:
           VITE_FB_VAPID_KEY: ${{ secrets.VITE_FB_VAPID_KEY }}
           VITE_GEMINI_API_KEY: ${{ secrets.VITE_GEMINI_API_KEY }}
         run: npm run build
-
-      - name: 💾 Archive Production Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist-artifacts
-          path: dist
-          retention-days: 7
-
-  deploy_preview:
-    name: 🚀 Firebase Hosting Preview Channel
-    needs: test_and_build
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - name: 📥 Checkout repository
-        uses: actions/checkout@v4
-
-      - name: 📥 Download Build Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dist-artifacts
-          path: dist
-
-      - name: 🌐 Deploy Preview Channel to Firebase Hosting
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRIP_E42A4 }}
-          projectId: trip-e42a4
-          expires: 14d
-
-  deploy_production:
-    name: 🌍 Firebase Hosting Live Production
-    needs: test_and_build
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-    runs-on: ubuntu-latest
-    steps:
-      - name: 📥 Checkout repository
-        uses: actions/checkout@v4
-
-      - name: 📥 Download Build Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dist-artifacts
-          path: dist
-
-      - name: 🌐 Deploy to Firebase Hosting (Live Channel)
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRIP_E42A4 }}
-          projectId: trip-e42a4
-          channelId: live
