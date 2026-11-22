@@ -3,7 +3,7 @@ import { useCol, add, update, remove, updateTrip } from '../data'
 import { tripDays, ymd } from './Trip'
 import { MapLink } from './Today'
 import ConfirmDialog from '../components/ConfirmDialog'
-import { geocodePlace } from '../geocode'
+import { geocodePlace, extractCoordsFromText } from '../geocode'
 import { askJSON, aiAvailable } from '../ai'
 import { inr } from '../settle'
 import { driveTime, parseDuration, toMin, fmtMin } from '../routing'
@@ -619,12 +619,39 @@ export default function Plan({ tripId, trip, uid, setTab }) {
                                   <span className="text-slate-400 text-[11px] px-1">Free</span>
                                 )}
 
-                                {setTab && i.place && (
+                                {setTab && (i.place || i.lat || i.title) && (
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      sessionStorage.setItem('yatra:map_focus', i.id)
-                                      setTab('map')
+                                      const loc = i.place || i.title
+                                      if (hasCoords(i)) {
+                                        sessionStorage.setItem(
+                                          'yatra:map_focus',
+                                          JSON.stringify({ id: i.id, date: i.date, lat: i.lat, lng: i.lng, title: i.title, place: loc })
+                                        )
+                                        setTab('map')
+                                      } else {
+                                        const fromText = extractCoordsFromText(loc)
+                                        if (fromText) {
+                                          update(tripId, 'plan', i.id, { lat: fromText.lat, lng: fromText.lng }).catch(() => {})
+                                          sessionStorage.setItem(
+                                            'yatra:map_focus',
+                                            JSON.stringify({ id: i.id, date: i.date, lat: fromText.lat, lng: fromText.lng, title: i.title, place: loc })
+                                          )
+                                          setTab('map')
+                                        } else {
+                                          sessionStorage.setItem(
+                                            'yatra:map_focus',
+                                            JSON.stringify({ id: i.id, date: i.date, place: loc, title: i.title })
+                                          )
+                                          if (loc) {
+                                            geocodePlace(loc).then((g) => {
+                                              if (g?.lat) update(tripId, 'plan', i.id, { lat: g.lat, lng: g.lng }).catch(() => {})
+                                            })
+                                          }
+                                          setTab('map')
+                                        }
+                                      }
                                     }}
                                     className="text-[11px] text-teal-700 font-semibold hover:underline"
                                   >

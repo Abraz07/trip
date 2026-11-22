@@ -97,6 +97,12 @@ export default function Map({ tripId, trip, uid, byId }) {
   const [selectedDay, setSelectedDay] = useState(() => {
     const focusId = sessionStorage.getItem('yatra:map_focus')
     if (focusId) {
+      if (focusId.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(focusId)
+          if (parsed.date) return parsed.date
+        } catch {}
+      }
       const match = planItems.find((p) => p.id === focusId)
       if (match?.date) return match.date
     }
@@ -135,6 +141,7 @@ export default function Map({ tripId, trip, uid, byId }) {
 
   // Route statistics state
   const [routeStats, setRouteStats] = useState(null)
+  const [dynamicCoords, setDynamicCoords] = useState({})
 
   // Meet point state
   const [settingMeet, setSettingMeet] = useState(false)
@@ -366,13 +373,27 @@ export default function Map({ tripId, trip, uid, byId }) {
   // Filter stops for the selected day
   const filteredStops = useMemo(() => {
     return planItems
-      .filter((it) => (selectedDay === 'all' || it.date === selectedDay) && (it.lat || extractCoordsFromText(it.place)))
+      .filter((it) => selectedDay === 'all' || it.date === selectedDay)
       .map((it) => {
-        const coords = it.lat && it.lng ? { lat: it.lat, lng: it.lng } : extractCoordsFromText(it.place)
-        return { ...it, ...coords }
+        let lat = typeof it.lat === 'number' ? it.lat : (it.lat ? parseFloat(it.lat) : null)
+        let lng = typeof it.lng === 'number' ? it.lng : (it.lng ? parseFloat(it.lng) : null)
+        if (lat == null || isNaN(lat) || lng == null || isNaN(lng)) {
+          const dyn = dynamicCoords[it.id]
+          if (dyn && !isNaN(Number(dyn.lat)) && !isNaN(Number(dyn.lng))) {
+            lat = Number(dyn.lat)
+            lng = Number(dyn.lng)
+          } else {
+            const parsed = extractCoordsFromText(it.place)
+            if (parsed) {
+              lat = parsed.lat
+              lng = parsed.lng
+            }
+          }
+        }
+        return { ...it, lat, lng }
       })
-      .filter((it) => it.lat && it.lng)
-  }, [planItems, selectedDay])
+      .filter((it) => typeof it.lat === 'number' && !isNaN(it.lat) && typeof it.lng === 'number' && !isNaN(it.lng))
+  }, [planItems, selectedDay, dynamicCoords])
 
   const liveFriends = useMemo(() => {
     return locs.filter((l) => l.sharing && l.at)
@@ -635,6 +656,11 @@ export default function Map({ tripId, trip, uid, byId }) {
 
   // 12. Auto-Fit Bounds on initial load or day switch
   useEffect(() => {
+    // If a specific map_focus target is pending, don't auto-fit bounds (let flyTo zoom directly)
+    if (sessionStorage.getItem('yatra:map_focus')) {
+      fitted.current = true
+      return
+    }
     if (!map.current || fitted.current) return
     const pts = []
     filteredStops.forEach((s) => pts.push([s.lat, s.lng]))
@@ -645,20 +671,90 @@ export default function Map({ tripId, trip, uid, byId }) {
     }
   }, [filteredStops, trip.meet])
 
-  // 13. Deep focus handler from sessionStorage
+  // 13. Deep focus handler from sessionStorage (from Plan or Today tabs)
   useEffect(() => {
-    const mapFocusId = sessionStorage.getItem('yatra:map_focus')
-    if (mapFocusId) {
-      sessionStorage.removeItem('yatra:map_focus')
-      const target = planItems.find((p) => p.id === mapFocusId)
-      if (target?.lat && target?.lng) {
-        setActiveStopId(target.id)
-        setTimeout(() => {
-          map.current?.flyTo([target.lat, target.lng], 16, { animate: true, duration: 1 })
-        }, 300)
+    const rawFocus = sessionStorage.getItem('yatra:map_focus')
+    if (!rawFocus) return
+
+    let focusId = rawFocus
+    let focusCoords = null
+    let focusDate = null
+    let focusPlace = null
+    let focusTitle = null
+
+    try {
+      if (rawFocus.startsWith('{')) {
+        const parsed = JSON.parse(rawFocus)
+        focusId = parsed.id
+        if (typeof parsed.lat === 'number' && typeof parsed.lng === 'number') {
+          focusCoords = [parsed.lat, parsed.lng]
+        }
+        if (parsed.date) focusDate = parsed.date
+        if (parsed.place) focusPlace = parsed.place
+        if (parsed.title) focusTitle = parsed.title
+      }
+    } catch {}
+
+    const target = planItems.find((p) => p.id === focusId)
+
+    // Wait if planItems is still loading and we have no coords yet
+    if (!target && !focusCoords && planItems.length === 0) {
+      return
+    }
+
+    let lat = (typeof target?.lat === 'number' ? target.lat : null) ?? focusCoords?.[0]
+    let lng = (typeof target?.lng === 'number' ? target.lng : null) ?? focusCoords?.[1]
+    const stopDate = target?.date || focusDate
+    const placeToSearch = target?.place || focusPlace || target?.title || focusTitle
+
+    if ((lat == null || lng == null) && placeToSearch) {
+      const fromText = extractCoordsFromText(placeToSearch)
+      if (fromText) {
+        lat = fromText.lat
+        lng = fromText.lng
       }
     }
-  }, [planItems])
+
+    if (stopDate && stopDate !== selectedDay) {
+      setSelectedDay(stopDate)
+    }
+
+    function flyAndHighlight(targetLat, targetLng, targetId) {
+      sessionStorage.removeItem('yatra:map_focus')
+      if (targetId) {
+        setDynamicCoords((prev) => ({ ...prev, [targetId]: { lat: targetLat, lng: targetLng } }))
+        setActiveStopId(targetId)
+      }
+      setShowStops(true)
+
+      const attemptFly = (retries = 6) => {
+        if (!map.current) {
+          if (retries > 0) setTimeout(() => attemptFly(retries - 1), 100)
+          return
+        }
+        try {
+          map.current.invalidateSize()
+          map.current.flyTo([targetLat, targetLng], 16, { animate: true, duration: 1.2 })
+        } catch {}
+      }
+
+      setTimeout(() => attemptFly(), 200)
+    }
+
+    if (lat != null && lng != null) {
+      flyAndHighlight(lat, lng, target?.id || focusId)
+    } else if (placeToSearch) {
+      sessionStorage.removeItem('yatra:map_focus')
+      geocodePlace(placeToSearch).then((g) => {
+        if (g?.lat && g?.lng) {
+          if (target?.id) {
+            update(tripId, 'plan', target.id, { lat: g.lat, lng: g.lng }).catch(() => {})
+          }
+          flyAndHighlight(g.lat, g.lng, target?.id || focusId)
+        }
+      })
+    }
+  }, [planItems, selectedDay])
 
   // Handle Fullscreen Resize
   useEffect(() => {
@@ -934,7 +1030,10 @@ export default function Map({ tripId, trip, uid, byId }) {
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-teal-100 text-teal-800 uppercase tracking-wider">
-                    Stop #{filteredStops.findIndex((s) => s.id === activeStop.id) + 1}
+                    {(() => {
+                      const idx = filteredStops.findIndex((s) => s.id === activeStop.id)
+                      return idx >= 0 ? `Stop #${idx + 1}` : 'Stop'
+                    })()}
                   </span>
                   <span className="text-xs font-mono text-slate-500">
                     {activeStop.time || 'Anytime'}

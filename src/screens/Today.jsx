@@ -80,7 +80,8 @@ export default function Today({ tripId, trip, uid, me, members, byId, setTab }) 
             <button
               type="button"
               onClick={() => {
-                sessionStorage.setItem('yatra:map_focus', todays[0].id)
+                const s = todays[0]
+                sessionStorage.setItem('yatra:map_focus', JSON.stringify({ id: s.id, date: s.date, lat: s.lat, lng: s.lng, title: s.title, place: s.place }))
                 setTab('map')
               }}
               className="text-xs text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full font-medium"
@@ -103,7 +104,7 @@ export default function Today({ tripId, trip, uid, me, members, byId, setTab }) 
                       <button
                         type="button"
                         onClick={() => {
-                          sessionStorage.setItem('yatra:map_focus', i.id)
+                          sessionStorage.setItem('yatra:map_focus', JSON.stringify({ id: i.id, date: i.date, lat: i.lat, lng: i.lng, title: i.title, place: i.place }))
                           setTab('map')
                         }}
                         className="text-[11px] bg-teal-50 border border-teal-200 text-teal-800 rounded px-1.5 py-0.5 font-medium hover:bg-teal-100"
