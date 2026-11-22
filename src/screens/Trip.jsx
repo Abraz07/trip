@@ -12,6 +12,7 @@ import Money from './Money'
 import Photos from './Photos'
 import MapScreen from './Map'
 import More from './More'
+import BottomNav from '../components/BottomNav'
 
 const TABS = [
   ['today', '🏠', 'Today'],
@@ -96,7 +97,7 @@ function TripInner({ tripId, trip, uid, me, members, tab, setTab }) {
   const Screen = { today: Today, plan: Plan, money: Money, photos: Photos, more: More, map: MapScreen }[tab]
 
   return (
-    <div className="min-h-dvh max-w-md mx-auto pb-24">
+    <div className="min-h-dvh max-w-md mx-auto pb-32">
       {/* Premium Sticky App Header */}
       <header
         className={`sticky top-0 z-20 text-white px-3 pt-[max(env(safe-area-inset-top),10px)] pb-2.5 shadow-md relative overflow-hidden transition-all ${
@@ -252,23 +253,8 @@ function TripInner({ tripId, trip, uid, me, members, tab, setTab }) {
         <Screen {...ctx} />
       </main>
 
-      {/* Bottom Tab Navigation */}
-      <nav className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-md border-t border-slate-200 z-10 pb-[env(safe-area-inset-bottom)]">
-        <div className="max-w-md mx-auto grid grid-cols-6">
-          {TABS.map(([k, icon, label]) => (
-            <button
-              key={k}
-              onClick={() => setTab(k)}
-              className={`py-2 text-xs flex flex-col items-center gap-0.5 transition ${
-                tab === k ? 'text-teal-700 font-bold scale-105' : 'text-slate-400 hover:text-slate-600'
-              }`}
-            >
-              <span className="text-xl leading-none">{icon}</span>
-              <span className="text-[11px]">{label}</span>
-            </button>
-          ))}
-        </div>
-      </nav>
+      {/* 10/10 Luminous Frosted Bar with Hero Quick Action Orb */}
+      <BottomNav tab={tab} setTab={setTab} />
     </div>
   )
 }
