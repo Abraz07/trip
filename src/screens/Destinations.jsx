@@ -50,7 +50,7 @@ export default function Destinations({ tripId, trip, uid, days, onSchedule, plan
         </div>
       )}
       <form onSubmit={addDest} className="flex gap-2">
-        <input className="input text-sm" value={name} onChange={(e) => setName(e.target.value)} placeholder={dests.length ? 'Add another place' : 'Where are you going? e.g. Dandeli'} />
+        <input className="input flex-1 min-w-0 text-sm" value={name} onChange={(e) => setName(e.target.value)} placeholder={dests.length ? 'Add another place' : 'Where are you going? e.g. Dandeli'} />
         <button disabled={!name.trim()} className="btn-ghost shrink-0 text-sm">Add</button>
       </form>
       {open && dests.includes(open) && (
@@ -169,7 +169,7 @@ Give 8 to 10 ideas.`],
         ))}
       </ul>
       <form onSubmit={addOwn} className="flex gap-2">
-        <input className="input text-sm" value={own} onChange={(e) => setOwn(e.target.value)} placeholder={`Add your own place in ${dest}`} />
+        <input className="input flex-1 min-w-0 text-sm" value={own} onChange={(e) => setOwn(e.target.value)} placeholder={`Add your own place in ${dest}`} />
         <button disabled={!own.trim()} className="btn-ghost shrink-0 text-sm">Add</button>
       </form>
       <p className="text-[10px] text-slate-400">AI ideas — check opening hours and seasons before you go.</p>

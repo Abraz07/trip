@@ -20,12 +20,12 @@ export const KINDS = [
   ['travel', '🚗', 'Travel'],
 ]
 
-const KIND_META = {
-  place: { label: 'Sight', tag: 'bg-emerald-50 text-emerald-800 border-emerald-200/80', dot: 'bg-emerald-600 ring-emerald-100' },
-  food: { label: 'Food', tag: 'bg-rose-50 text-rose-800 border-rose-200/80', dot: 'bg-rose-600 ring-rose-100' },
-  activity: { label: 'Activity', tag: 'bg-amber-50 text-amber-800 border-amber-200/80', dot: 'bg-amber-600 ring-amber-100' },
-  stay: { label: 'Stay', tag: 'bg-indigo-50 text-indigo-800 border-indigo-200/80', dot: 'bg-indigo-600 ring-indigo-100' },
-  travel: { label: 'Travel', tag: 'bg-slate-100 text-slate-800 border-slate-200', dot: 'bg-slate-600 ring-slate-100' },
+const KIND_STYLE = {
+  place: { label: 'Sight', badge: 'bg-emerald-50 text-emerald-800 border-emerald-200', dot: 'bg-emerald-100 text-emerald-800 ring-emerald-200' },
+  food: { label: 'Food', badge: 'bg-rose-50 text-rose-800 border-rose-200', dot: 'bg-rose-100 text-rose-800 ring-rose-200' },
+  activity: { label: 'Activity', badge: 'bg-amber-50 text-amber-900 border-amber-200', dot: 'bg-amber-100 text-amber-800 ring-amber-200' },
+  stay: { label: 'Stay', badge: 'bg-indigo-50 text-indigo-800 border-indigo-200', dot: 'bg-indigo-100 text-indigo-800 ring-indigo-200' },
+  travel: { label: 'Travel', badge: 'bg-slate-100 text-slate-800 border-slate-200', dot: 'bg-slate-200 text-slate-800 ring-slate-300' },
 }
 
 const kindOf = (k) => KINDS.find(([v]) => v === k) || KINDS[0]
@@ -41,28 +41,25 @@ export default function Plan({ tripId, trip, uid, setTab }) {
   const packing = useCol(tripId, 'packing')
   const days = tripDays(trip)
 
-  const [editing, setEditing] = useState(null) // { date } for new, or existing item
+  const [editing, setEditing] = useState(null)
   const [deletingItem, setDeletingItem] = useState(null)
   const [marking, setMarking] = useState({})
-  const [ai, setAi] = useState({}) // date -> { mode, busy, err, data }
+  const [ai, setAi] = useState({})
   const [planner, setPlanner] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
-  const [bookingDrawerOpen, setBookingDrawerOpen] = useState(false)
-  const [activeDayNotes, setActiveDayNotes] = useState(null) // day object for notes modal
+  const [showToBook, setShowToBook] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
-  const [destinationsOpen, setDestinationsOpen] = useState(false)
   const [titleEdit, setTitleEdit] = useState(null)
   const [collapsed, setCollapsed] = useState(() => new Set())
-  const [filterCat, setFilterCat] = useState('all')
   const [reordering, setReordering] = useState(null) // date of the day being rearranged
 
   // Save a new order: the day's time slots stay where they are and the stops move between them,
   // so moving the 16:00 fort to the top makes it the 09:00 stop. Durations travel with their stop.
   async function saveOrder(ordered) {
     const slots = ordered.map((i) => i.time || '').sort((a, b) => (a || '99').localeCompare(b || '99'))
-    await Promise.all(ordered.map((i, k) => (i.time || '') === slots[k] && i.order === k
+    await Promise.all(ordered.map((i, k) => ((i.time || '') === slots[k] && i.order === k
       ? null
-      : update(tripId, 'plan', i.id, { time: slots[k], order: k })))
+      : update(tripId, 'plan', i.id, { time: slots[k], order: k }))))
     setReordering(null)
   }
 
@@ -74,7 +71,7 @@ export default function Plan({ tripId, trip, uid, setTab }) {
   const plannedDays = days.filter((d) => items.some((i) => i.date === d.date)).length
   const route = (trip.destinations || []).length ? trip.destinations : []
 
-  // Automatic geocoding for route calculation and map display
+  // Look up coordinates for stops without lat/lng for route computation and map view
   useEffect(() => {
     for (const i of items) {
       if (i.place && !hasCoords(i) && i.lat !== false) {
@@ -117,7 +114,7 @@ export default function Plan({ tripId, trip, uid, setTab }) {
       const ctx = `Trip: "${trip.name}", ${trip.start} to ${trip.end}. Day ${day.n} (${day.date}). Group of friends from India.\nPlanned stops:\n${stops}`
       const data = mode === 'needs'
         ? await askJSON({
-            system: 'You are a practical Indian travel advisor. Return honest, specific items tied to the planned stops with no fluff.',
+            system: 'You are a practical Indian travel advisor. Provide direct, actionable packing and preparation guidance tied directly to the stops planned. No generic filler.',
             parts: [`${ctx}\n\nWhat should the group carry, prepare or book for this day? Give up to 6 packing essentials tied to specific stops, things to book or check in advance (permits, tickets, tide/opening times, cash-only places), and short practical tips.`],
             schema: {
               type: 'OBJECT',
@@ -131,8 +128,8 @@ export default function Plan({ tripId, trip, uid, setTab }) {
             thinking: 'minimal',
           })
         : await askJSON({
-            system: 'You are a local Indian travel expert. Suggest real, specific places only with their towns.',
-            parts: [`${ctx}\n\nSuggest up to 5 stops that fit smoothly around the existing schedule (good timing, nearby, mix of food and sights). Use real place names.`],
+            system: 'You are a local Indian travel expert. Suggest real, specific places only with towns.',
+            parts: [`${ctx}\n\nSuggest up to 5 stops that fit around the existing plan (good timing, nearby, mix of food and sights). Use real place names.`],
             schema: { type: 'OBJECT', properties: { stops: { type: 'ARRAY', items: STOP_SCHEMA } }, required: ['stops'] },
             temperature: 0.6,
             thinking: 'minimal',
@@ -177,129 +174,146 @@ export default function Plan({ tripId, trip, uid, setTab }) {
   return (
     <div className="space-y-4">
 
-      {/* 1. EDITORIAL JOURNEY HEADER */}
-      <section className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
-        <div className="p-4 space-y-3">
-          {/* Route & Share Row */}
-          <div className="flex items-start justify-between gap-2">
+      {/* 1. OVERVIEW & ITINERARY HERO */}
+      <section className="rounded-3xl bg-white border border-slate-200/90 shadow-sm overflow-hidden">
+        {/* Top Gradient Banner */}
+        <div className="bg-gradient-to-br from-slate-900 via-teal-950 to-teal-800 text-white p-4 sm:p-5 space-y-3">
+          <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
-              <span className="text-[10px] uppercase font-mono font-bold tracking-wider text-slate-400">
+              <span className="text-[10px] uppercase font-mono font-bold tracking-widest text-teal-300">
                 Itinerary · {days.length} Days
               </span>
               {route.length > 0 ? (
-                <p className="font-semibold text-slate-900 text-sm sm:text-base leading-snug mt-0.5 break-words">
+                <p className="mt-0.5 font-bold text-sm sm:text-base leading-snug break-words">
                   {route.join('  →  ')}
                 </p>
               ) : (
-                <p className="font-semibold text-slate-900 text-sm mt-0.5">
-                  {trip.name || 'Trip Itinerary'}
+                <p className="mt-0.5 font-bold text-sm sm:text-base leading-snug">
+                  {trip.name || `${days.length}-Day Trip`}
                 </p>
               )}
             </div>
 
             <button
               onClick={() => setShareOpen(true)}
-              className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 active:scale-95 transition"
+              className="shrink-0 rounded-full bg-white/15 hover:bg-white/25 active:scale-95 px-3 py-1.5 text-xs font-semibold text-white transition flex items-center gap-1"
             >
               <span>↗</span>
               <span>Share</span>
             </button>
           </div>
 
-          {/* Key Metric Chips */}
-          <div className="grid grid-cols-4 gap-1.5 text-center pt-1 border-t border-slate-100">
-            <div className="py-1 px-1">
-              <p className="font-bold text-xs sm:text-sm text-slate-900 tabular-nums">{plannedDays}/{days.length}</p>
-              <p className="text-[10px] text-slate-400">Days set</p>
+          {/* 4 Stat Boxes: Evenly spaced with min-w-0 to prevent overlapping */}
+          <div className="grid grid-cols-4 gap-2 text-center pt-1">
+            <div className="rounded-xl bg-white/10 py-2 px-1 min-w-0">
+              <p className="font-bold text-xs sm:text-sm tabular-nums truncate">{plannedDays}/{days.length}</p>
+              <p className="text-[10px] text-teal-100/80 leading-none mt-0.5">Days set</p>
             </div>
-            <div className="py-1 px-1">
-              <p className="font-bold text-xs sm:text-sm text-slate-900 tabular-nums">{items.length}</p>
-              <p className="text-[10px] text-slate-400">Stops</p>
+            <div className="rounded-xl bg-white/10 py-2 px-1 min-w-0">
+              <p className="font-bold text-xs sm:text-sm tabular-nums truncate">{items.length}</p>
+              <p className="text-[10px] text-teal-100/80 leading-none mt-0.5">Stops</p>
             </div>
-            <div className="py-1 px-1">
-              <p className="font-bold text-xs sm:text-sm text-slate-900 tabular-nums">{totalCost ? inr(totalCost) : '—'}</p>
-              <p className="text-[10px] text-slate-400">Est. / person</p>
+            <div className="rounded-xl bg-white/10 py-2 px-1 min-w-0">
+              <p className="font-bold text-xs sm:text-sm tabular-nums truncate">{totalCost ? inr(totalCost) : '—'}</p>
+              <p className="text-[10px] text-teal-100/80 leading-none mt-0.5">/ person</p>
             </div>
-            <button
-              onClick={() => setBookingDrawerOpen(true)}
-              className={`py-1 px-1 rounded-lg transition active:scale-95 ${toBook.length > 0 ? 'bg-amber-50 text-amber-900 border border-amber-200' : 'text-slate-400'}`}
-            >
-              <p className="font-bold text-xs sm:text-sm tabular-nums flex items-center justify-center gap-1">
-                {toBook.length > 0 && <span className="size-1.5 rounded-full bg-amber-500 shrink-0"></span>}
-                <span>{toBook.length}</span>
-              </p>
-              <p className="text-[10px]">To book</p>
-            </button>
+            <div className={`rounded-xl py-2 px-1 min-w-0 ${toBook.length > 0 ? 'bg-amber-400 text-slate-950 font-bold' : 'bg-white/10 text-white'}`}>
+              <p className="font-bold text-xs sm:text-sm tabular-nums truncate">{toBook.length}</p>
+              <p className={`text-[10px] leading-none mt-0.5 ${toBook.length > 0 ? 'text-slate-900 font-semibold' : 'text-teal-100/80'}`}>To book</p>
+            </div>
           </div>
 
-          {/* Progress Strip */}
-          <div className="h-1 rounded-full bg-slate-100 overflow-hidden" role="progressbar" aria-valuenow={plannedDays} aria-valuemax={days.length}>
+          {/* Progress Bar */}
+          <div className="h-1.5 rounded-full bg-white/15 overflow-hidden" role="progressbar" aria-valuenow={plannedDays} aria-valuemax={days.length}>
             <div
-              className="h-full bg-teal-700 rounded-full transition-all duration-300"
+              className="h-full bg-amber-400 rounded-full transition-all duration-300"
               style={{ width: `${days.length ? (plannedDays / days.length) * 100 : 0}%` }}
             />
           </div>
+        </div>
 
-          {/* Utility Action Buttons */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 pt-1 border-t border-slate-100">
-            <button
-              onClick={() => setDestinationsOpen(!destinationsOpen)}
-              className={`py-2 px-2.5 rounded-xl border text-xs font-medium text-center truncate transition active:scale-95 ${destinationsOpen ? 'bg-slate-900 text-white border-slate-900' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'}`}
-            >
-              📍 Destinations {route.length > 0 ? `(${route.length})` : ''}
-            </button>
-
-            {toBook.length > 0 ? (
+        {/* Action Controls & Sub-Panels */}
+        <div className="p-4 space-y-3">
+          {/* Action Grid: 2 clean columns, fully responsive */}
+          <div className="grid grid-cols-2 gap-2">
+            {aiAvailable() && (
               <button
-                onClick={() => setBookingDrawerOpen(true)}
-                className="py-2 px-2.5 rounded-xl border border-amber-200 bg-amber-50/70 hover:bg-amber-100 text-amber-900 text-xs font-semibold text-center truncate transition active:scale-95"
+                onClick={() => { setChatOpen(!chatOpen); setPlanner(false) }}
+                className={`text-xs font-semibold rounded-xl py-2.5 px-2 border text-center transition active:scale-95 truncate ${
+                  chatOpen ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700'
+                }`}
               >
-                🎟️ {toBook.length} Bookings
-              </button>
-            ) : (
-              <button
-                onClick={() => setEditing({ date: days[0]?.date || today })}
-                className="py-2 px-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium text-center truncate transition active:scale-95"
-              >
-                + Add Stop
+                💬 Chat to plan
               </button>
             )}
 
             {aiAvailable() && (
               <button
-                onClick={() => { setChatOpen(!chatOpen); setPlanner(false) }}
-                className={`py-2 px-2.5 rounded-xl border text-xs font-medium text-center truncate transition active:scale-95 ${chatOpen ? 'bg-slate-900 text-white border-slate-900' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'}`}
+                onClick={() => { setPlanner(!planner); setChatOpen(false) }}
+                className={`text-xs font-semibold rounded-xl py-2.5 px-2 border text-center transition active:scale-95 truncate ${
+                  planner ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700'
+                }`}
               >
-                💬 Chat to plan
+                ✨ Plan whole trip
+              </button>
+            )}
+
+            {toBook.length > 0 && (
+              <button
+                onClick={() => setShowToBook(!showToBook)}
+                className={`text-xs font-semibold rounded-xl py-2.5 px-2 border text-center transition active:scale-95 truncate ${
+                  showToBook ? 'bg-amber-500 text-white border-amber-500' : 'border-amber-300 bg-amber-50 text-amber-900'
+                }`}
+              >
+                🎟️ {toBook.length} to book {showToBook ? '▲' : '▼'}
               </button>
             )}
 
             {setTab && items.length > 0 && (
               <button
                 onClick={() => setTab('map')}
-                className="py-2 px-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium text-center truncate transition active:scale-95"
+                className="text-xs font-semibold rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 py-2.5 px-2 text-center transition active:scale-95 truncate"
               >
                 🗺️ See on map
               </button>
             )}
           </div>
 
-          {/* Destinations Drawer (Collapsible) */}
-          {destinationsOpen && (
-            <div className="pt-2 border-t border-slate-100">
-              <Destinations
-                tripId={tripId}
-                trip={trip}
-                uid={uid}
-                days={days}
-                onSchedule={addStop}
-                suggestTime={(date) => nextFreeTime(items, date)}
-                planIds={new Set(items.map((i) => i.id))}
-              />
+          {/* Inline Bookings Checklist */}
+          {showToBook && toBook.length > 0 && (
+            <div className="p-3 bg-amber-50/60 rounded-2xl border border-amber-200 space-y-2">
+              <div className="flex items-center justify-between pb-1 border-b border-amber-200/60 text-xs">
+                <span className="font-bold text-amber-950">Pending Reservations ({toBook.length})</span>
+                <button onClick={() => setShowToBook(false)} className="text-amber-800 hover:text-amber-950 font-bold">✕</button>
+              </div>
+              <ul className="divide-y divide-amber-200/50 text-xs">
+                {toBook.map((i) => {
+                  const d = days.find((x) => x.date === i.date)
+                  return (
+                    <li key={i.id} className="py-2 flex items-center justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-slate-900 truncate">{i.title}</p>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          {d ? dayLabel(d) : i.date}{i.time ? ` · ${i.time}` : ''}{i.cost ? ` · ≈ ${inr(i.cost)}/ea` : ''}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          jump(i.date)
+                          setEditing(i)
+                        }}
+                        className="shrink-0 text-xs rounded-lg border border-teal-700 bg-white hover:bg-teal-50 text-teal-700 font-semibold px-2.5 py-1 active:scale-95 transition"
+                      >
+                        Mark booked
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
             </div>
           )}
 
-          {/* Chat Assistant (Collapsible) */}
+          {/* Embedded Natural Chat Planner */}
           {chatOpen && (
             <div className="pt-2 border-t border-slate-100">
               <PlanChat
@@ -315,17 +329,30 @@ export default function Plan({ tripId, trip, uid, setTab }) {
             </div>
           )}
 
-          {/* Full Planner Assistant (Collapsible) */}
+          {/* Embedded Trip Planner Wizard */}
           {planner && (
             <div className="pt-2 border-t border-slate-100">
               <TripPlanner trip={trip} days={days} items={items} onAdd={addStop} onDone={() => setPlanner(false)} />
             </div>
           )}
+
+          {/* Destinations Wishlist & Manager */}
+          <div className="pt-2 border-t border-slate-100">
+            <Destinations
+              tripId={tripId}
+              trip={trip}
+              uid={uid}
+              days={days}
+              onSchedule={addStop}
+              suggestTime={(date) => nextFreeTime(items, date)}
+              planIds={new Set(items.map((i) => i.id))}
+            />
+          </div>
         </div>
       </section>
 
-      {/* 2. CALENDAR DAY CHIP CAROUSEL (CLEAN, NO OVERLAP) */}
-      <nav aria-label="Jump to day" className="bg-slate-50/90 rounded-2xl p-1.5 border border-slate-200/80">
+      {/* 2. CALENDAR DAY NAVIGATOR (HORIZONTAL SCROLL, ZERO OVERLAP) */}
+      <nav aria-label="Jump to day" className="bg-slate-100/90 rounded-2xl p-1.5 border border-slate-200">
         <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-0.5">
           {days.map((d) => {
             const count = items.filter((i) => i.date === d.date).length
@@ -338,7 +365,7 @@ export default function Plan({ tripId, trip, uid, setTab }) {
                 onClick={() => jump(d.date)}
                 className={`shrink-0 w-[84px] py-1.5 px-2 rounded-xl border text-center transition active:scale-95 ${
                   isToday
-                    ? 'bg-slate-900 border-slate-900 text-white shadow-xs'
+                    ? 'bg-slate-900 border-slate-900 text-white shadow-sm'
                     : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700'
                 }`}
               >
@@ -362,43 +389,10 @@ export default function Plan({ tripId, trip, uid, setTab }) {
         </div>
       </nav>
 
-      {/* 3. OPTIONAL CATEGORY FILTER PILLS */}
-      {items.length > 3 && (
-        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5 text-xs">
-          <span className="text-[10px] font-mono uppercase text-slate-400 mr-1 shrink-0">Filter:</span>
-          <button
-            onClick={() => setFilterCat('all')}
-            className={`px-2.5 py-1 rounded-lg font-medium shrink-0 transition ${filterCat === 'all' ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-          >
-            All ({items.length})
-          </button>
-          {KINDS.map(([k, icon, label]) => {
-            const num = items.filter((i) => i.kind === k).length
-            if (!num) return null
-            return (
-              <button
-                key={k}
-                onClick={() => setFilterCat(filterCat === k ? 'all' : k)}
-                className={`px-2.5 py-1 rounded-lg font-medium shrink-0 flex items-center gap-1 transition ${
-                  filterCat === k
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                <span>{icon}</span>
-                <span>{label}</span>
-                <span className="text-[10px] opacity-70 font-mono">({num})</span>
-              </button>
-            )
-          })}
-        </div>
-      )}
-
-      {/* 4. CHRONOLOGICAL DAY SECTIONS */}
+      {/* 3. DAY-BY-DAY SECTIONS */}
       {days.map((d) => {
-        const fullList = items.filter((i) => i.date === d.date).sort(byTime)
-        const list = filterCat === 'all' ? fullList : fullList.filter((i) => i.kind === filterCat)
-        const dayCost = fullList.reduce((s, i) => s + (Number(i.cost) || 0), 0)
+        const list = items.filter((i) => i.date === d.date).sort(byTime)
+        const dayCost = list.reduce((s, i) => s + (Number(i.cost) || 0), 0)
         const isCollapsed = collapsed.has(d.date)
         const title = trip.dayTitles?.[d.date]
         const isToday = d.date === today
@@ -408,18 +402,20 @@ export default function Plan({ tripId, trip, uid, setTab }) {
           <section
             key={d.date}
             id={`day-${d.date}`}
-            className={`scroll-mt-24 rounded-2xl bg-white border shadow-xs overflow-hidden transition ${
-              isToday ? 'border-slate-800' : 'border-slate-200/90'
+            className={`scroll-mt-20 rounded-3xl bg-white border shadow-sm overflow-hidden transition ${
+              isToday ? 'border-amber-400 ring-2 ring-amber-400/20' : 'border-slate-200'
             }`}
           >
             {/* Day Header */}
             <header className="flex items-start gap-3 p-4 pb-3">
-              {/* Day Number Badge */}
-              <div className={`size-11 shrink-0 rounded-xl grid place-items-center text-center leading-none ${
-                isToday ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-800 border border-slate-200'
-              }`}>
-                <span className="text-[9px] font-mono uppercase tracking-wider opacity-70">Day</span>
-                <span className="text-base font-bold -mt-0.5">{d.n}</span>
+              {/* Day Badge */}
+              <div
+                className={`size-11 shrink-0 rounded-2xl grid place-items-center text-center leading-none ${
+                  isToday ? 'bg-amber-400 text-slate-950 font-black shadow-xs' : 'bg-slate-900 text-white font-bold'
+                }`}
+              >
+                <span className="text-[9px] font-mono uppercase tracking-wider opacity-75">Day</span>
+                <span className="text-base font-extrabold -mt-0.5">{d.n}</span>
               </div>
 
               {/* Title & Metadata */}
@@ -429,15 +425,16 @@ export default function Plan({ tripId, trip, uid, setTab }) {
                     {new Date(d.date + 'T00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}
                   </span>
                   {isToday && (
-                    <span className="rounded bg-amber-100 text-amber-800 px-1.5 py-0.2 text-[10px] font-bold font-mono">
+                    <span className="rounded bg-amber-100 text-amber-900 px-1.5 py-0.5 text-[10px] font-extrabold font-mono">
                       TODAY
                     </span>
                   )}
                 </div>
 
+                {/* Inline Title Editor */}
                 {titleEdit === d.date ? (
                   <form
-                    className="flex gap-1.5 mt-1"
+                    className="flex items-center gap-1.5 mt-1"
                     onSubmit={(e) => {
                       e.preventDefault()
                       saveTitle(d.date, e.target.t.value)
@@ -450,45 +447,44 @@ export default function Plan({ tripId, trip, uid, setTab }) {
                       defaultValue={title || ''}
                       maxLength={50}
                       placeholder="e.g. Jungle day in Dandeli"
-                      className="input py-1 text-xs"
+                      className="input flex-1 min-w-0 py-1 text-xs"
                     />
-                    <button className="btn py-1 px-2.5 text-xs">Save</button>
-                    <button type="button" onClick={() => setTitleEdit(null)} className="btn-ghost py-1 px-2 text-xs">✕</button>
+                    <button type="submit" className="btn shrink-0 py-1 px-3 text-xs">Save</button>
+                    <button type="button" onClick={() => setTitleEdit(null)} className="btn-ghost shrink-0 py-1 px-2 text-xs">✕</button>
                   </form>
                 ) : (
                   <button
-                    className="text-left font-semibold text-slate-900 hover:text-slate-700 text-sm mt-0.5 break-words block w-full"
+                    className="text-left font-bold text-slate-900 hover:text-slate-700 text-sm mt-0.5 break-words block w-full leading-snug"
                     onClick={() => setTitleEdit(d.date)}
                   >
-                    {title || <span className="text-slate-400 font-normal">+ Add day theme or title</span>}
+                    {title || <span className="text-slate-400 font-normal">+ Add a title for Day {d.n}</span>}
                   </button>
                 )}
 
-                {fullList.length > 0 && <DaySummary list={fullList} cost={dayCost} onOpenNotes={() => setActiveDayNotes(d)} />}
+                {list.length > 0 && <DaySummary list={list} cost={dayCost} />}
               </div>
 
-              {/* Collapse/Expand Toggle */}
+              {/* Collapse/Expand */}
               <button
                 aria-label={isCollapsed ? `Expand day ${d.n}` : `Collapse day ${d.n}`}
                 aria-expanded={!isCollapsed}
                 onClick={() => toggleDay(d.date)}
-                className="size-7 shrink-0 grid place-items-center rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 text-xs"
+                className="size-8 shrink-0 grid place-items-center rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-700 text-xs font-bold transition"
               >
-                {isCollapsed ? '▼' : '▲'}
+                {isCollapsed ? '▾' : '▴'}
               </button>
             </header>
 
-            {/* Day Stops Timeline */}
+            {/* Day Stops Content */}
             {!isCollapsed && (
-              <div className="px-4 pb-4 pt-1 space-y-2">
-
+              <div className="px-4 pb-4 pt-1 space-y-3">
                 {/* Empty State */}
-                {fullList.length === 0 && editing?.date !== d.date && (
-                  <div className="rounded-xl border border-dashed border-slate-200 p-4 text-center space-y-2">
-                    <p className="text-xs text-slate-500">Nothing scheduled for Day {d.n} yet.</p>
+                {list.length === 0 && editing?.date !== d.date && (
+                  <div className="rounded-2xl border-2 border-dashed border-slate-200 p-4 text-center space-y-2">
+                    <p className="text-xs text-slate-500 font-medium">Nothing planned yet 🌴</p>
                     <div className="flex justify-center gap-2">
                       <button
-                        className="btn text-xs py-1.5 px-3"
+                        className="btn text-xs py-1.5 px-3.5"
                         onClick={() => setEditing({ date: d.date })}
                       >
                         + Add stop
@@ -496,37 +492,30 @@ export default function Plan({ tripId, trip, uid, setTab }) {
                       {aiAvailable() && (
                         <button
                           disabled={a?.busy}
-                          onClick={() => runAI(d, fullList, 'stops')}
+                          onClick={() => runAI(d, list, 'stops')}
                           className="btn-ghost text-xs py-1.5 px-3"
                         >
-                          {a?.busy ? 'Checking ideas…' : 'Suggest stops'}
+                          {a?.busy ? 'Checking…' : 'Suggest stops'}
                         </button>
                       )}
                     </div>
                   </div>
                 )}
 
-                {/* Filter Notice */}
-                {filterCat !== 'all' && fullList.length > 0 && list.length === 0 && (
-                  <p className="text-xs text-slate-400 italic py-2 text-center">
-                    No {filterCat} stops on this day. (Showing filtered view)
-                  </p>
-                )}
-
                 {reordering === d.date && (
-                  <ReorderList list={fullList} onCancel={() => setReordering(null)} onSave={saveOrder} />
+                  <ReorderList list={list} onCancel={() => setReordering(null)} onSave={saveOrder} />
                 )}
 
-                {/* Timeline List */}
-                <ol className={`relative space-y-0 ${reordering === d.date ? 'hidden' : ''}`}>
+                {/* Stops Timeline */}
+                <ol className={`relative space-y-1 ${reordering === d.date ? 'hidden' : ''}`}>
                   {list.map((i, idx) => {
                     const [, icon, label] = kindOf(i.kind)
                     const next = list[idx + 1]
-                    const meta = KIND_META[i.kind] || KIND_META.place
+                    const meta = KIND_STYLE[i.kind] || KIND_STYLE.place
 
                     if (editing?.id === i.id) {
                       return (
-                        <li key={i.id} className="py-2">
+                        <li key={i.id} className="py-1">
                           <StopForm
                             initial={i}
                             days={days}
@@ -541,11 +530,11 @@ export default function Plan({ tripId, trip, uid, setTab }) {
                     }
 
                     return (
-                      <li key={i.id} className="relative group">
+                      <li key={i.id} className="relative">
                         <div className="flex items-start gap-2.5">
-                          {/* Time Column (Left Rail) */}
-                          <div className="w-12 shrink-0 pt-0.5 text-right font-mono">
-                            <p className="text-xs font-semibold text-slate-800 leading-tight">
+                          {/* Left Rail: Time & Duration */}
+                          <div className="w-12 shrink-0 pt-2 text-right font-mono">
+                            <p className="text-xs font-bold text-slate-800 leading-tight tabular-nums">
                               {i.time || '—'}
                             </p>
                             {i.duration && (
@@ -553,52 +542,51 @@ export default function Plan({ tripId, trip, uid, setTab }) {
                             )}
                           </div>
 
-                          {/* Node Dot / Icon */}
-                          <div className="flex flex-col items-center pt-1 shrink-0">
-                            <span
-                              className={`size-2.5 rounded-full ring-4 ${meta.dot} shrink-0`}
-                              title={label}
-                            />
-                            {next ? <div className="w-px h-full bg-slate-200 mt-1 min-h-[24px]"></div> : null}
+                          {/* Center Node Icon */}
+                          <div className="flex flex-col items-center shrink-0 pt-0.5">
+                            <div className={`size-8 rounded-xl flex items-center justify-center text-sm shadow-xs ${meta.dot}`} title={label}>
+                              {icon}
+                            </div>
+                            {next && <div className="w-0.5 bg-slate-200 flex-1 my-1 min-h-[16px]" aria-hidden />}
                           </div>
 
-                          {/* Stop Details Card */}
-                          <div className="flex-1 min-w-0 bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all p-3 mb-1.5">
-                            {/* Card Header: Tag, Title, Actions */}
-                            <div className="flex items-start justify-between gap-1.5">
+                          {/* Stop Card */}
+                          <div className="flex-1 min-w-0 bg-white rounded-2xl border border-slate-200/90 shadow-xs p-3.5 mb-2 hover:border-slate-300 transition-all">
+                            {/* Card Header */}
+                            <div className="flex items-start justify-between gap-2">
                               <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-1.5 mb-0.5">
-                                  <span className={`text-[10px] uppercase font-mono font-semibold px-1.5 py-0.2 rounded border ${meta.tag}`}>
-                                    {icon} {label}
+                                <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                                  <span className={`text-[10px] uppercase font-mono font-semibold px-1.5 py-0.5 rounded border ${meta.badge}`}>
+                                    {label}
                                   </span>
                                   {i.booking === 'todo' && (
-                                    <span className="text-[10px] font-semibold bg-amber-100 text-amber-900 border border-amber-200 px-1.5 py-0.2 rounded">
+                                    <span className="text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-200 px-1.5 py-0.5 rounded">
                                       🎟️ To book
                                     </span>
                                   )}
                                   {i.booking === 'booked' && (
-                                    <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 px-1.5 py-0.2 rounded font-mono">
+                                    <span className="text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 px-1.5 py-0.5 rounded font-mono truncate max-w-[140px]">
                                       ✓ Booked{i.bookingRef ? ` #${i.bookingRef}` : ''}
                                     </span>
                                   )}
                                 </div>
-                                <h4 className="font-semibold text-slate-900 text-sm leading-snug break-words">
+                                <h4 className="font-bold text-slate-900 text-sm leading-snug break-words">
                                   {i.title}
                                 </h4>
                               </div>
 
-                              {/* Edit & Delete Action Buttons */}
-                              <div className="flex items-center gap-0.5 shrink-0 -mr-1 -mt-1">
+                              {/* Actions */}
+                              <div className="flex items-center gap-0.5 shrink-0">
                                 <button
                                   aria-label={`Edit ${i.title}`}
-                                  className="size-7 grid place-items-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 text-xs"
+                                  className="size-7 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center text-xs transition"
                                   onClick={() => setEditing(i)}
                                 >
                                   ✎
                                 </button>
                                 <button
                                   aria-label={`Delete ${i.title}`}
-                                  className="size-7 grid place-items-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 text-xs"
+                                  className="size-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center text-xs transition"
                                   onClick={() => setDeletingItem(i)}
                                 >
                                   ✕
@@ -606,29 +594,29 @@ export default function Plan({ tripId, trip, uid, setTab }) {
                               </div>
                             </div>
 
-                            {/* Place / Map Link */}
+                            {/* Location Link */}
                             {i.place && (
                               <div className="mt-1 text-xs text-slate-500 break-words flex items-center gap-1">
                                 <MapLink place={i.place} />
                               </div>
                             )}
 
-                            {/* Stop Notes */}
+                            {/* Notes */}
                             {i.notes && (
-                              <p className="text-xs text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100 mt-2 whitespace-pre-wrap break-words">
+                              <p className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100 mt-2 whitespace-pre-wrap break-words leading-relaxed">
                                 {i.notes}
                               </p>
                             )}
 
-                            {/* Card Footer Strip: Cost, Visited status */}
-                            <div className="flex flex-wrap items-center justify-between gap-1.5 mt-2.5 pt-2 border-t border-slate-100 text-xs">
-                              <div className="flex items-center gap-1.5">
+                            {/* Footer Badges & Actions */}
+                            <div className="flex flex-wrap items-center justify-between gap-2 mt-2.5 pt-2 border-t border-slate-100 text-xs">
+                              <div className="flex items-center gap-1.5 flex-wrap">
                                 {Number(i.cost) > 0 ? (
-                                  <span className="font-mono text-slate-600 text-[11px]">
+                                  <span className="font-mono text-slate-600 text-[11px] bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-full">
                                     ≈ {inr(i.cost)}/ea
                                   </span>
                                 ) : (
-                                  <span className="text-slate-400 text-[11px]">Free</span>
+                                  <span className="text-slate-400 text-[11px] px-1">Free</span>
                                 )}
 
                                 {setTab && i.place && (
@@ -638,7 +626,7 @@ export default function Plan({ tripId, trip, uid, setTab }) {
                                       sessionStorage.setItem('yatra:map_focus', i.id)
                                       setTab('map')
                                     }}
-                                    className="text-[11px] text-teal-700 font-medium hover:underline ml-1"
+                                    className="text-[11px] text-teal-700 font-semibold hover:underline"
                                   >
                                     Map pin →
                                   </button>
@@ -655,7 +643,7 @@ export default function Plan({ tripId, trip, uid, setTab }) {
                                     type="button"
                                     disabled={marking[i.id] === 'busy'}
                                     onClick={() => markVisited(i)}
-                                    className="text-[11px] font-medium border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 px-2 py-0.5 rounded-full active:scale-95 transition"
+                                    className="text-[11px] font-medium border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 px-2 py-0.5 rounded-full transition active:scale-95"
                                   >
                                     {marking[i.id] === 'busy' ? 'Saving…' : '✓ Mark visited'}
                                   </button>
@@ -669,9 +657,9 @@ export default function Plan({ tripId, trip, uid, setTab }) {
                           </div>
                         </div>
 
-                        {/* Transit Leg Connector */}
+                        {/* Transit Leg */}
                         {next && (
-                          <div className="ml-12 pl-4 py-1">
+                          <div className="ml-14 pl-4 py-1 -mt-1 mb-1">
                             <Leg from={i} to={next} />
                           </div>
                         )}
@@ -696,18 +684,18 @@ export default function Plan({ tripId, trip, uid, setTab }) {
                 )}
 
                 {/* Bottom Day Actions */}
-                {fullList.length > 0 && (
-                  <div className="mt-3 pt-2 border-t border-slate-100 flex gap-2">
+                {list.length > 0 && (
+                  <div className="mt-3 pt-2 border-t border-slate-100 flex items-center gap-2">
                     <button
-                      className="btn-ghost flex-1 text-xs py-2"
+                      className="btn flex-1 text-xs py-2 shadow-xs font-semibold"
                       onClick={() => setEditing({ date: d.date })}
                     >
                       + Add stop
                     </button>
-                    {fullList.length > 1 && reordering !== d.date && (
+                    {list.length > 1 && reordering !== d.date && (
                       <button
-                        className="btn-ghost text-xs py-2 px-3"
-                        onClick={() => { setEditing(null); setFilterCat('all'); setReordering(d.date) }}
+                        className="btn-ghost text-xs py-2 px-3 font-medium shrink-0"
+                        onClick={() => { setEditing(null); setReordering(d.date) }}
                         title="Rearrange the order of stops"
                       >
                         ⇅ Reorder
@@ -716,27 +704,25 @@ export default function Plan({ tripId, trip, uid, setTab }) {
                     {aiAvailable() && (
                       <button
                         disabled={a?.busy}
-                        onClick={() => runAI(d, fullList, 'needs')}
-                        className="btn-ghost text-xs py-2 px-3"
-                        title="Check essentials & tips for this day"
+                        onClick={() => runAI(d, list, 'needs')}
+                        className="btn-ghost text-xs py-2 px-3 font-medium shrink-0"
                       >
-                        {a?.busy && a.mode === 'needs' ? 'Checking…' : 'Day notes'}
+                        {a?.busy && a.mode === 'needs' ? 'Checking…' : '🎒 Carry & prep'}
                       </button>
                     )}
                     {aiAvailable() && (
                       <button
                         disabled={a?.busy}
-                        onClick={() => runAI(d, fullList, 'stops')}
-                        className="btn-ghost text-xs py-2 px-3"
-                        title="Suggest real stops fitting this day's timing"
+                        onClick={() => runAI(d, list, 'stops')}
+                        className="btn-ghost text-xs py-2 px-3 font-medium shrink-0"
                       >
-                        {a?.busy && a.mode === 'stops' ? 'Thinking…' : 'Ideas'}
+                        {a?.busy && a.mode === 'stops' ? 'Thinking…' : '💡 Ideas'}
                       </button>
                     )}
                   </div>
                 )}
 
-                {/* AI Error or Response Sheets */}
+                {/* Practical Day Checklist & Tips */}
                 {a?.err && <p className="text-xs text-rose-600 mt-2">{a.err}</p>}
                 {a?.data && a.mode === 'needs' && (
                   <Needs data={a.data} packed={packed} onAdd={addToPacking} onClose={() => setAi((x) => ({ ...x, [d.date]: null }))} />
@@ -744,9 +730,11 @@ export default function Plan({ tripId, trip, uid, setTab }) {
                 {a?.data && a.mode === 'stops' && (
                   <Suggestions
                     stops={a.data.stops || []}
-                    existing={new Set(fullList.map((i) => i.title.toLowerCase()))}
+                    existing={new Set(list.map((i) => i.title.toLowerCase()))}
                     onAdd={(s, when) => addStop({ ...s, time: when.time, duration: when.duration || s.duration }, when.date)}
-                    days={days} date={d.date} suggestTime={(date) => nextFreeTime(items, date)}
+                    days={days}
+                    date={d.date}
+                    suggestTime={(date) => nextFreeTime(items, date)}
                     onClose={() => setAi((x) => ({ ...x, [d.date]: null }))}
                   />
                 )}
@@ -756,105 +744,7 @@ export default function Plan({ tripId, trip, uid, setTab }) {
         )
       })}
 
-      {/* 5. SLIDE-UP BOOKING HUB DRAWER */}
-      {bookingDrawerOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-2xs z-40 flex flex-col justify-end p-2 sm:p-4"
-          onClick={() => setBookingDrawerOpen(false)}
-        >
-          <div
-            className="bg-white rounded-2xl w-full max-w-md mx-auto p-5 space-y-4 max-h-[85vh] overflow-y-auto shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between pb-2 border-b border-slate-100">
-              <div>
-                <h3 className="font-bold text-sm text-slate-900">Trip Booking Hub</h3>
-                <p className="text-xs text-slate-500">
-                  {toBook.length > 0 ? `${toBook.length} pending reservations` : 'All bookings confirmed!'}
-                </p>
-              </div>
-              <button
-                onClick={() => setBookingDrawerOpen(false)}
-                className="size-7 rounded-full bg-slate-100 text-slate-500 hover:text-slate-800 grid place-items-center text-xs font-bold"
-              >
-                ✕
-              </button>
-            </div>
-
-            {toBook.length === 0 ? (
-              <div className="py-8 text-center text-xs text-slate-500 space-y-1">
-                <p className="text-base">✅</p>
-                <p className="font-semibold text-slate-800">No pending bookings</p>
-                <p>All stops are marked as booked or don't require advance reservation.</p>
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                {toBook.map((i) => {
-                  const d = days.find((x) => x.date === i.date)
-                  return (
-                    <div key={i.id} className="p-3.5 rounded-xl border border-amber-200 bg-amber-50/50 space-y-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <span className="text-[10px] font-mono uppercase text-amber-800 font-semibold">
-                            {d ? dayLabel(d) : i.date}{i.time ? ` · ${i.time}` : ''}
-                          </span>
-                          <h4 className="font-bold text-slate-900 text-xs mt-0.5 break-words">{i.title}</h4>
-                          {i.place && <p className="text-[11px] text-slate-500 truncate">{i.place}</p>}
-                        </div>
-                        {i.cost > 0 && (
-                          <span className="font-mono text-xs font-bold text-slate-800 shrink-0">
-                            {inr(i.cost)}/ea
-                          </span>
-                        )}
-                      </div>
-
-                      {i.notes && (
-                        <p className="text-xs text-amber-950 bg-white/70 p-2 rounded-lg border border-amber-150 whitespace-pre-wrap break-words">
-                          {i.notes}
-                        </p>
-                      )}
-
-                      <div className="flex gap-2 pt-1">
-                        <button
-                          onClick={() => {
-                            setBookingDrawerOpen(false)
-                            jump(i.date)
-                            setEditing(i)
-                          }}
-                          className="btn-ghost flex-1 py-1.5 text-xs font-medium"
-                        >
-                          Edit details
-                        </button>
-                        <button
-                          onClick={async () => {
-                            const ref = window.prompt('Booking ID or PNR (optional):', '')
-                            await update(tripId, 'plan', i.id, {
-                              booking: 'booked',
-                              bookingRef: (ref || '').trim(),
-                            })
-                          }}
-                          className="btn flex-1 py-1.5 text-xs font-semibold"
-                        >
-                          ✓ Mark Booked
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            <button
-              onClick={() => setBookingDrawerOpen(false)}
-              className="btn-ghost w-full py-2 text-xs"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 6. SHARE ITINERARY MODAL */}
+      {/* 4. SHARE ITINERARY MODAL */}
       {shareOpen && (
         <ShareItinerary
           trip={trip}
@@ -864,7 +754,7 @@ export default function Plan({ tripId, trip, uid, setTab }) {
         />
       )}
 
-      {/* 7. DELETE STOP CONFIRMATION */}
+      {/* 5. DELETE STOP CONFIRMATION */}
       <ConfirmDialog
         isOpen={!!deletingItem}
         title="Delete stop?"
@@ -879,8 +769,8 @@ export default function Plan({ tripId, trip, uid, setTab }) {
   )
 }
 
-// "4 stops · 🚗 62 km · 1 h 40 min · ≈ ₹2,100/person"
-function DaySummary({ list, cost, onOpenNotes }) {
+// Day Summary: e.g. "4 stops · 🚗 62 km · 1 h 40 min · ≈ ₹2,100/person"
+function DaySummary({ list, cost }) {
   const [drive, setDrive] = useState(null)
   const key = list.map((i) => `${i.lat},${i.lng}`).join('|')
 
@@ -896,26 +786,18 @@ function DaySummary({ list, cost, onOpenNotes }) {
     return () => { live = false }
   }, [key]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const parts = [`${list.length} stop${list.length > 1 ? 's' : ''}`]
+  if (drive?.km) parts.push(`🚗 ${drive.km} km (${fmtMin(drive.min)})`)
+  if (cost) parts.push(`≈ ${inr(cost)}/ea`)
+
   return (
-    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
-      <span>{list.length} stop{list.length > 1 ? 's' : ''}</span>
-      {drive?.km ? (
-        <>
-          <span className="text-slate-300">·</span>
-          <span>🚗 {drive.km} km ({fmtMin(drive.min)})</span>
-        </>
-      ) : null}
-      {cost ? (
-        <>
-          <span className="text-slate-300">·</span>
-          <span className="font-mono">≈ {inr(cost)}/ea</span>
-        </>
-      ) : null}
-    </div>
+    <p className="mt-1 text-xs text-slate-500 leading-relaxed">
+      {parts.join(' · ')}
+    </p>
   )
 }
 
-// Drive time between consecutive stops with tight schedule detection
+// Transit Leg between consecutive stops
 function Leg({ from, to }) {
   const [r, setR] = useState(undefined)
   const ready = hasCoords(from) && hasCoords(to)
@@ -927,7 +809,7 @@ function Leg({ from, to }) {
   }, [ready, from.lat, from.lng, to.lat, to.lng]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!ready) {
-    return <div className="border-l border-dashed border-slate-200 h-3 ml-1" aria-hidden />
+    return <div className="border-l-2 border-dashed border-slate-200 h-3 ml-0.5" aria-hidden />
   }
 
   const start = toMin(from.time)
@@ -936,28 +818,28 @@ function Leg({ from, to }) {
   const tight = r && free != null && free < r.min
 
   return (
-    <div className="border-l border-slate-200 pl-3 py-1 text-xs">
+    <div className="border-l-2 border-dashed border-slate-300 pl-3 py-1">
       {r === undefined && <span className="text-slate-400 font-mono text-[11px]">Checking drive time…</span>}
-      {r === null && <span className="text-slate-400 font-mono text-[11px]">Route not mapped</span>}
+      {r === null && <span className="text-slate-400 font-mono text-[11px]">No driving route mapped</span>}
       {r && (
-        <div className={`inline-flex flex-wrap items-center gap-1.5 text-[11px] font-mono px-2 py-0.5 rounded-md ${
-          tight ? 'bg-amber-50 text-amber-900 border border-amber-200' : 'text-slate-500'
+        <span className={`inline-flex flex-wrap items-center gap-1.5 text-[11px] font-mono px-2 py-0.5 rounded-lg ${
+          tight ? 'bg-amber-100 text-amber-950 font-bold border border-amber-300' : 'text-slate-500 bg-slate-50 border border-slate-200'
         }`}>
           <span>🚗 {r.km < 1 ? `${Math.round(r.km * 1000)} m` : `${r.km} km`} · {fmtMin(r.min)}</span>
           {tight && (
-            <span className="font-bold text-amber-800">
+            <span className="text-amber-800 font-bold">
               (⚠️ {free <= 0 ? 'no buffer' : `${fmtMin(free)} buffer`})
             </span>
           )}
-        </div>
+        </span>
       )}
     </div>
   )
 }
 
-// Stop Form: Add or Edit
-// Rearrange a day's stops with ▲▼ (more reliable than dragging on phones). Shows the time each
-// stop will get, since time slots stay put and the stops move between them.
+// Stop Form: 2-column layout preventing iOS time-picker squashing
+// Rearrange a day's stops with up/down buttons (more reliable than dragging on phones). Shows the
+// time each stop will get, since time slots stay put and the stops move between them.
 function ReorderList({ list, onSave, onCancel }) {
   const [order, setOrder] = useState(list)
   const [saving, setSaving] = useState(false)
@@ -966,7 +848,9 @@ function ReorderList({ list, onSave, onCancel }) {
     const j = k + dir
     if (j < 0 || j >= order.length) return
     const next = [...order]
-    ;[next[k], next[j]] = [next[j], next[k]]
+    const tmp = next[k]
+    next[k] = next[j]
+    next[j] = tmp
     setOrder(next)
   }
   const changed = order.some((i, k) => i.id !== list[k].id)
@@ -1034,24 +918,22 @@ function StopForm({ initial, days, onSave, onCancel }) {
   }
 
   return (
-    <form className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200" onSubmit={submit}>
-      <div className="flex items-center justify-between pb-1 border-b border-slate-200/60">
-        <h4 className="font-semibold text-xs text-slate-800">
+    <form className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-200" onSubmit={submit}>
+      <div className="flex items-center justify-between pb-1 border-b border-slate-200">
+        <h4 className="font-bold text-xs text-slate-800">
           {initial.id ? 'Edit Stop' : 'Add New Stop'}
         </h4>
-        <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-700 text-xs font-bold">
-          ✕
-        </button>
+        <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-700 text-xs font-bold">✕</button>
       </div>
 
-      {/* Category selector */}
+      {/* Category Selection */}
       <div className="flex flex-wrap gap-1">
         {KINDS.map(([k, icon, label]) => (
           <button
             type="button"
             key={k}
             onClick={() => setV({ ...v, kind: k })}
-            className={`rounded-lg px-2.5 py-1 text-xs font-medium border transition ${
+            className={`rounded-xl px-2.5 py-1 text-xs font-medium border transition ${
               v.kind === k
                 ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
                 : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
@@ -1066,44 +948,57 @@ function StopForm({ initial, days, onSave, onCancel }) {
         required
         autoFocus
         className="input text-xs"
-        placeholder="Stop title (e.g. Om Beach, Scuba diving, Dinner at Namaste…)"
+        placeholder="Stop title (e.g. Om Beach, Scuba diving, Namaste Cafe…)"
         value={v.title}
         onChange={set('title')}
       />
 
-      <div className="grid grid-cols-3 gap-2">
-        <input
-          type="time"
-          aria-label="Time"
-          className="input text-xs font-mono"
-          value={v.time}
-          onChange={set('time')}
-        />
-        <input
-          className="input text-xs"
-          aria-label="Duration"
-          placeholder="Duration (2h)"
-          value={v.duration}
-          onChange={set('duration')}
-        />
-        <input
-          className="input text-xs font-mono"
-          aria-label="Cost per person"
-          inputMode="numeric"
-          placeholder="₹/person"
-          value={v.cost || ''}
-          onChange={(e) => setV({ ...v, cost: e.target.value.replace(/[^\d]/g, '') })}
-        />
+      {/* Time & Duration: 2 spacious columns */}
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block text-[11px] font-medium text-slate-600">
+          Time
+          <input
+            type="time"
+            className="input mt-1 text-xs font-mono"
+            value={v.time}
+            onChange={set('time')}
+          />
+        </label>
+        <label className="block text-[11px] font-medium text-slate-600">
+          Duration
+          <input
+            className="input mt-1 text-xs"
+            placeholder="e.g. 2h"
+            value={v.duration}
+            onChange={set('duration')}
+          />
+        </label>
       </div>
 
-      <input
-        className="input text-xs"
-        placeholder="Location name or Google Maps link"
-        value={v.place}
-        onChange={set('place')}
-      />
+      {/* Cost & Location */}
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block text-[11px] font-medium text-slate-600">
+          Cost / person
+          <input
+            className="input mt-1 text-xs font-mono"
+            inputMode="numeric"
+            placeholder="₹ per person"
+            value={v.cost || ''}
+            onChange={(e) => setV({ ...v, cost: e.target.value.replace(/[^\d]/g, '') })}
+          />
+        </label>
+        <label className="block text-[11px] font-medium text-slate-600">
+          Location
+          <input
+            className="input mt-1 text-xs"
+            placeholder="Place or Maps link"
+            value={v.place}
+            onChange={set('place')}
+          />
+        </label>
+      </div>
 
-      {(initial.id || days.length > 1) && (
+      {initial.id && (
         <label className="block text-xs font-medium text-slate-600">
           Day
           <select className="input mt-1 text-xs" value={v.date} onChange={set('date')}>
@@ -1116,9 +1011,9 @@ function StopForm({ initial, days, onSave, onCancel }) {
         </label>
       )}
 
-      {/* Booking Segmented Control */}
+      {/* Booking Status */}
       <div>
-        <p className="text-xs font-medium text-slate-600 mb-1">Booking Status</p>
+        <p className="text-xs font-medium text-slate-600 mb-1">Booking</p>
         <div className="grid grid-cols-3 bg-slate-200/70 rounded-xl p-1 text-xs font-medium gap-0.5">
           {[
             ['none', 'Not needed'],
@@ -1130,7 +1025,7 @@ function StopForm({ initial, days, onSave, onCancel }) {
               key={k}
               onClick={() => setV({ ...v, booking: k })}
               className={`py-1.5 rounded-lg transition ${
-                v.booking === k ? 'bg-white text-slate-900 shadow-2xs font-semibold' : 'text-slate-600'
+                v.booking === k ? 'bg-white text-slate-900 shadow-xs font-semibold' : 'text-slate-600'
               }`}
             >
               {l}
@@ -1167,7 +1062,7 @@ function StopForm({ initial, days, onSave, onCancel }) {
   )
 }
 
-// Share Itinerary Component
+// Share Itinerary Modal
 function ShareItinerary({ trip, days, items, onClose }) {
   const [copied, setCopied] = useState(false)
   const lines = [`🗓️ *${trip.name}* — itinerary`]
@@ -1186,21 +1081,19 @@ function ShareItinerary({ trip, days, items, onClose }) {
   const text = lines.join('\n')
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-2xs z-40 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-sm w-full p-4 space-y-3 shadow-2xl">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl max-w-sm w-full p-4 space-y-3 shadow-2xl">
         <div className="flex justify-between items-center pb-1 border-b border-slate-100">
-          <p className="text-sm font-semibold text-slate-900">Share Itinerary</p>
-          <button aria-label="Close" className="text-slate-400 hover:text-slate-700 font-bold" onClick={onClose}>
-            ✕
-          </button>
+          <p className="text-sm font-bold text-slate-900">Share Itinerary</p>
+          <button aria-label="Close" className="text-slate-400 hover:text-slate-700 font-bold" onClick={onClose}>✕</button>
         </div>
-        <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap text-xs text-slate-600 bg-slate-50 rounded-xl p-2.5 border border-slate-200 font-mono">
+        <pre className="max-h-52 overflow-y-auto whitespace-pre-wrap text-xs text-slate-600 bg-slate-50 rounded-2xl p-3 border border-slate-200 font-mono">
           {text}
         </pre>
         <div className="flex gap-2 pt-1">
-          <WhatsAppButton className="flex-1 text-xs" label="WhatsApp" text={text} />
+          <WhatsAppButton className="flex-1 text-xs py-2" label="WhatsApp" text={text} />
           <button
-            className="btn-ghost flex-1 text-xs"
+            className="btn-ghost flex-1 text-xs py-2"
             onClick={async () => {
               try {
                 await navigator.clipboard.writeText(text)
@@ -1232,7 +1125,6 @@ const STOP_SCHEMA = {
   required: ['title', 'place', 'kind', 'time', 'why'],
 }
 
-// AI Trip Planner Wizard
 const PACES = [
   ['relaxed', 'Relaxed', '2–3 stops/day, late starts'],
   ['balanced', 'Balanced', '3–4 stops/day'],
@@ -1319,10 +1211,10 @@ Return new stops for each day 1..${days.length}. Costs in INR per person.`],
 
   if (draft) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3 text-xs">
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3 text-xs">
         <div className="flex justify-between items-center pb-1 border-b border-slate-200">
-          <p className="font-semibold text-slate-900">Draft Itinerary</p>
-          <button className="text-slate-600 underline font-medium" onClick={() => setDraft(null)}>
+          <p className="font-bold text-slate-900">Draft Itinerary</p>
+          <button className="text-teal-700 underline font-semibold" onClick={() => setDraft(null)}>
             Change preferences
           </button>
         </div>
@@ -1330,7 +1222,7 @@ Return new stops for each day 1..${days.length}. Costs in INR per person.`],
 
         <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
           {draft.map((d, di) => (
-            <div key={d.date} className="bg-white p-3 rounded-lg border border-slate-200">
+            <div key={d.date} className="bg-white p-3 rounded-xl border border-slate-200">
               <p className="font-bold text-slate-800">{dayLabel(d)}{d.theme ? ` — ${d.theme}` : ''}</p>
               {d.stops.length === 0 ? (
                 <p className="text-slate-400 mt-1">No new stops.</p>
@@ -1347,10 +1239,10 @@ Return new stops for each day 1..${days.length}. Costs in INR per person.`],
                         />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <span className="font-semibold text-slate-900">{s.title}</span>
-                            <span className="font-mono text-slate-500">{s.time}</span>
+                            <span className="font-semibold text-slate-900 break-words">{s.title}</span>
+                            <span className="font-mono text-slate-500 text-[11px]">{s.time}</span>
                           </div>
-                          <p className="text-slate-500">{s.why}</p>
+                          <p className="text-slate-500 text-[11px] break-words">{s.why}</p>
                         </div>
                       </label>
                     </li>
@@ -1364,7 +1256,7 @@ Return new stops for each day 1..${days.length}. Costs in INR per person.`],
         <button
           disabled={!count || saving}
           onClick={addAll}
-          className="btn w-full py-2.5 text-xs"
+          className="btn w-full py-2.5 text-xs font-semibold"
         >
           {saving ? 'Adding…' : `Add ${count} stop${count === 1 ? '' : 's'} to itinerary`}
         </button>
@@ -1373,10 +1265,10 @@ Return new stops for each day 1..${days.length}. Costs in INR per person.`],
   }
 
   return (
-    <form onSubmit={generate} className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3 text-xs">
+    <form onSubmit={generate} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3 text-xs">
       <div className="flex justify-between items-center pb-1 border-b border-slate-200">
-        <p className="font-semibold text-slate-900">Plan Entire Trip</p>
-        <button type="button" onClick={onDone} className="text-slate-400 hover:text-slate-700">✕</button>
+        <p className="font-bold text-slate-900">Plan Entire Trip</p>
+        <button type="button" onClick={onDone} className="text-slate-400 hover:text-slate-700 font-bold">✕</button>
       </div>
 
       <label className="block text-slate-600 font-medium">
@@ -1398,7 +1290,7 @@ Return new stops for each day 1..${days.length}. Costs in INR per person.`],
               type="button"
               key={k}
               onClick={() => setF({ ...f, pace: k })}
-              className={`rounded-lg py-1.5 text-xs border font-medium ${
+              className={`rounded-xl py-1.5 text-xs border font-medium ${
                 f.pace === k ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-200 text-slate-700'
               }`}
             >
@@ -1416,7 +1308,7 @@ Return new stops for each day 1..${days.length}. Costs in INR per person.`],
               type="button"
               key={x}
               onClick={() => toggleInterest(x)}
-              className={`rounded-lg px-2.5 py-1 text-xs border ${
+              className={`rounded-xl px-2.5 py-1 text-xs border ${
                 f.interests.includes(x)
                   ? 'bg-slate-900 text-white border-slate-900 font-medium'
                   : 'bg-white border-slate-200 text-slate-700'
@@ -1437,40 +1329,38 @@ Return new stops for each day 1..${days.length}. Costs in INR per person.`],
       />
 
       {err && <p className="text-rose-600">{err}</p>}
-      <button disabled={busy} className="btn w-full py-2.5 text-xs">
+      <button disabled={busy} className="btn w-full py-2.5 text-xs font-semibold">
         {busy ? 'Drafting itinerary…' : `Draft ${days.length} days`}
       </button>
     </form>
   )
 }
 
-// Practical Day Notes (Clean checklist, zero slop)
+// Practical Day Notes & Packing
 function Needs({ data, packed, onAdd, onClose }) {
   return (
-    <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3 text-xs">
+    <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3 text-xs">
       <div className="flex justify-between items-center pb-1 border-b border-slate-200">
-        <p className="font-semibold text-slate-900">Day Practical Notes & Essentials</p>
-        <button aria-label="Close" className="text-slate-400 hover:text-slate-700 font-bold" onClick={onClose}>
-          ✕
-        </button>
+        <p className="font-bold text-slate-900">Day Practical Notes & Essentials</p>
+        <button aria-label="Close" className="text-slate-400 hover:text-slate-700 font-bold" onClick={onClose}>✕</button>
       </div>
 
       {data.essentials?.length > 0 && (
         <div className="space-y-1.5">
           <p className="font-mono text-[10px] uppercase text-slate-400 font-semibold tracking-wider">Things to carry</p>
-          <ul className="space-y-1">
+          <ul className="space-y-1.5">
             {data.essentials.map((e, i) => {
               const done = packed.has(e.item.toLowerCase())
               return (
-                <li key={i} className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200 gap-2">
+                <li key={i} className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-slate-200 gap-2">
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-slate-800 break-words">{e.item}</p>
+                    <p className="font-semibold text-slate-800 break-words">{e.item}</p>
                     <p className="text-[11px] text-slate-500 break-words">{e.why}</p>
                   </div>
                   <button
                     disabled={done}
                     onClick={() => onAdd(e)}
-                    className="text-[11px] shrink-0 rounded-md border border-slate-200 px-2 py-0.5 font-medium disabled:opacity-40"
+                    className="text-[11px] shrink-0 rounded-lg border border-teal-700 text-teal-700 bg-white hover:bg-teal-50 px-2.5 py-1 font-semibold disabled:opacity-40 disabled:border-slate-300 disabled:text-slate-400"
                   >
                     {done ? 'In packing ✓' : '+ Packing'}
                   </button>
@@ -1502,18 +1392,16 @@ function Needs({ data, packed, onAdd, onClose }) {
   )
 }
 
-// Stop Suggestions (Clean inline list)
+// Stop Recommendations
 function Suggestions({ stops, existing, onAdd, onClose, days, date, suggestTime }) {
   const [added, setAdded] = useState(new Set())
   const [picking, setPicking] = useState(null) // index of the idea whose day/time is being chosen
 
   return (
-    <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2 text-xs">
+    <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-2 text-xs">
       <div className="flex justify-between items-center pb-1 border-b border-slate-200">
-        <p className="font-semibold text-slate-900">Stop Recommendations</p>
-        <button aria-label="Close" className="text-slate-400 hover:text-slate-700 font-bold" onClick={onClose}>
-          ✕
-        </button>
+        <p className="font-bold text-slate-900">Stop Recommendations</p>
+        <button aria-label="Close" className="text-slate-400 hover:text-slate-700 font-bold" onClick={onClose}>✕</button>
       </div>
 
       {stops.length === 0 ? (
@@ -1523,7 +1411,7 @@ function Suggestions({ stops, existing, onAdd, onClose, days, date, suggestTime 
           {stops.map((s, i) => {
             const done = added.has(i) || existing.has(s.title.toLowerCase())
             return (
-              <div key={i} className="p-2 rounded-lg bg-white border border-slate-200">
+              <div key={i} className="p-2.5 rounded-xl bg-white border border-slate-200">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
@@ -1537,7 +1425,7 @@ function Suggestions({ stops, existing, onAdd, onClose, days, date, suggestTime 
                 <button
                   disabled={done}
                   onClick={() => setPicking(picking === i ? null : i)}
-                  className="text-[11px] shrink-0 rounded-md border border-slate-200 px-2 py-0.5 font-medium disabled:opacity-40"
+                  className="text-[11px] shrink-0 rounded-lg border border-teal-700 text-teal-700 bg-white hover:bg-teal-50 px-2.5 py-1 font-semibold disabled:opacity-40 disabled:border-slate-300 disabled:text-slate-400"
                 >
                   {done ? 'Added ✓' : picking === i ? 'Close' : '+ Add'}
                 </button>

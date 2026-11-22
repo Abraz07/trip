@@ -185,7 +185,7 @@ export default function PlanChat({ trip, days, items, onAdd, onUpdate, onRemove,
       )}
 
       <form onSubmit={send} className="flex gap-2 items-end">
-        <textarea className="input text-sm" rows={chat.length ? 1 : 4} value={msg} onChange={(e) => setMsg(e.target.value)} disabled={busy}
+        <textarea className="input flex-1 min-w-0 text-sm" rows={chat.length ? 1 : 4} value={msg} onChange={(e) => setMsg(e.target.value)} disabled={busy}
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send(e) }}
           placeholder={chat.length ? 'Anything to change?' : 'Day 1: Leave Bangalore 5am, reach Dandeli by 1pm, rafting at 3, stay at riverside resort\nDay 2: Syntheri Rocks in the morning, drive to Gokarna, Om Beach sunset…'} />
         <button disabled={!msg.trim() || busy} className="btn shrink-0 px-3">Send</button>
